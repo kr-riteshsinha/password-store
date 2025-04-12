@@ -13,7 +13,14 @@ class PasswordListScreen extends StatelessWidget {
 
     return ListView.builder(
       itemCount: provider.passwords.length,
-      itemBuilder: (ctx, index) => Dismissible(
+      itemBuilder: (ctx, index) => Container(
+        padding: EdgeInsets.all(1),
+        margin: EdgeInsets.symmetric(horizontal: 1),
+     decoration: BoxDecoration(
+       color: const Color(0xFFF5F6FA),
+       borderRadius: BorderRadius.circular(2),
+     ),
+     child:  Dismissible(
         key: ValueKey(provider.passwords[index]),
         background: Container(
           color: Theme.of(context).colorScheme.error.withOpacity(0.75),
@@ -24,7 +31,7 @@ class PasswordListScreen extends StatelessWidget {
         },
         child: PasswordItem(provider.passwords[index])
       ),
-    );
+    ));
   }
 
 

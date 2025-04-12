@@ -8,8 +8,18 @@ class PasswordManagerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F6FA), // light background like Teams
       appBar: AppBar(
-        title: const Text("Store"),
+        backgroundColor: const Color(0xFF464EB8), // Teams purple
+        elevation: 0,
+        title: const Text(
+          "Password Vault",
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+            color: Colors.white,
+          ),
+        ),
         actions: [
           IconButton(
             onPressed: () {
@@ -18,11 +28,14 @@ class PasswordManagerApp extends StatelessWidget {
                 MaterialPageRoute(builder: (context) => AddPasswordScreen()),
               );
             },
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add, color: Colors.white),
           ),
         ],
       ),
-      body: Column(children: [Expanded(child: PasswordListScreen())]),
+      body: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: PasswordListScreen(), // this will show list in nice padding
+      ),
     );
   }
 }
