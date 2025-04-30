@@ -1,16 +1,18 @@
-import 'package:archinfotech/screens/add-password.dart';
-import 'package:archinfotech/screens/list-password.dart';
-import 'package:archinfotech/service/password_provider.dart';
+import 'package:archinfotech/screens/add-login.dart';
+import 'package:archinfotech/screens/list_login.dart';
+import 'package:archinfotech/screens/setting-drawer.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 class PasswordManagerApp extends StatelessWidget {
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA), // light background like Teams
+      backgroundColor: const Color(0xFFF5F6FA),
+      drawer: SettingDrawer(),// light background like Teams
       appBar: AppBar(
-        backgroundColor: const Color(0xFF464EB8), // Teams purple
+
+        backgroundColor: const Color(0xFF6264A7),//const Color(0xFF464EB8), // Teams purple
         elevation: 0,
         title: const Text(
           "Password Vault",
@@ -25,7 +27,7 @@ class PasswordManagerApp extends StatelessWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => AddPasswordScreen()),
+                MaterialPageRoute(builder: (context) => AddLoginScreen()),
               );
             },
             icon: const Icon(Icons.add, color: Colors.white),
@@ -34,7 +36,7 @@ class PasswordManagerApp extends StatelessWidget {
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
-        child: PasswordListScreen(), // this will show list in nice padding
+        child: LoginListScreen(), // this will show list in nice padding
       ),
     );
   }

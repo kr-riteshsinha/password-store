@@ -1,4 +1,3 @@
-import 'package:archinfotech/screens/list-password.dart';
 import 'package:archinfotech/service/password_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -19,7 +18,7 @@ class _PasswordStore extends State<PasswordStore> {
   Widget build(BuildContext context) {
     final provider = Provider.of<PasswordProvider>(context);
     if (provider.passwords.isNotEmpty) {
-      mainContent = PasswordListScreen();
+      //mainContent = PasswordListScreen();
     } else {
       Widget mainContent = const Center(
         child: Text('No expenses found. Start adding some!'),

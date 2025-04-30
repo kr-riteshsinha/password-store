@@ -59,7 +59,7 @@ class PasswordProvider  extends ChangeNotifier{
 
   }
   Future<void> deletePassword(int id) async {
-   // await _dbHelper.deletePassword(id);
+   //await _dbHelper.deletePassword(id);
    // mockPasswordEntries.remove(value)
     await fetchPasswords();  // ✅ Refresh list after deleting
   }

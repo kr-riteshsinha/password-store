@@ -1,25 +1,26 @@
+import 'package:archinfotech/screens/edit_login.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:archinfotech/service/password_provider.dart';
 
-import '../models/passwordEntry.dart';
-import 'edit-password.dart';
+import '../models/login_entry.dart';
+import '../provider/login_entry_provider.dart';
 
-class PasswordItem extends StatelessWidget {
-  const PasswordItem(this.passwordEntry, {super.key});
 
-  final PasswordEntry passwordEntry;
+class LoginItem extends StatelessWidget {
+  final LoginEntry loginEntry;
+
+  const LoginItem(this.loginEntry, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return Dismissible(
-      key: Key(passwordEntry.id.toString()),
+      key: Key(loginEntry.id.toString()),
       direction: DismissDirection.endToStart,
       background: Container(
         margin: const EdgeInsets.symmetric(vertical: 1, horizontal: 1),
         decoration: BoxDecoration(
-          color: const Color(0xFFFF3B30),
+          color:  const Color(0xFFFF3B30),
           borderRadius: BorderRadius.circular(14),
         ),
         alignment: Alignment.centerRight,
@@ -41,12 +42,12 @@ class PasswordItem extends StatelessWidget {
         ),
       ),
       onDismissed: (direction) {
-        Provider.of<PasswordProvider>(context, listen: false)
-            .deletePassword(passwordEntry.id!);
+        Provider.of<LoginEntryProvider>(context, listen: false)
+            .deleteEntry(loginEntry.id!);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('"${passwordEntry.category}" deleted'),
+            content: Text('"${loginEntry.title}" deleted'),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
@@ -57,8 +58,8 @@ class PasswordItem extends StatelessWidget {
               label: 'Undo',
               textColor: Colors.white,
               onPressed: () {
-                Provider.of<PasswordProvider>(context, listen: false)
-                    .addPassword(passwordEntry);
+                Provider.of<LoginEntryProvider>(context, listen: false)
+                    .addLoginEntry(loginEntry);
               },
             ),
           ),
@@ -69,15 +70,15 @@ class PasswordItem extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => EditPasswordScreen(passwordEntry: passwordEntry),
+               builder: (context) => EditLoginScreen(loginEntry: loginEntry),
             ),
           );
         },
         borderRadius: BorderRadius.circular(14),
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
+            color: Colors.white, //Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: Colors.grey.shade300,
@@ -91,59 +92,63 @@ class PasswordItem extends StatelessWidget {
               ),
             ],
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                passwordEntry.category,
+                loginEntry.title,
                 style: const TextStyle(
-                  fontSize: 17,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Text(
-                    'URL:',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.black54,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      passwordEntry.url.toString(),
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.grey,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
-                    tooltip: "Copy URL",
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: passwordEntry.url.toString()));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('URL copied to clipboard')),
-                      );
-                    },
-                  ),
-                  Icon(
-                    Icons.favorite,
-                    size: 18,
-                    color: passwordEntry.isFavorite ? Colors.red : Colors.grey.shade400,
-                  ),
-                ],
-              ),
+              //const SizedBox(height: 6),
+              _infoRow(context, label: 'Username:', value: loginEntry.username),
+              //const SizedBox(height: 6),
+              _infoRow(context, label: 'Password:', value: '••••••••', isPassword: true),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context,
+      {required String label,
+        required String value,
+        bool isPassword = false}) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Colors.black54,
+          ),
+        ),
+       const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              color: Colors.grey,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+          tooltip: "Copy",
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: isPassword ? loginEntry.password : value));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${isPassword ? 'Password' : 'Username'} copied to clipboard')),
+            );
+          },
+        ),
+      ],
     );
   }
 }
