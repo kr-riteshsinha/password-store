@@ -1,4 +1,4 @@
-import 'package:archinfotech/password-manager.dart';
+import 'package:archinfotech/provider/LoadingProvider.dart';
 import 'package:archinfotech/provider/login_entry_provider.dart';
 import 'package:archinfotech/screens/password_auth.dart';
 import 'package:archinfotech/service/password_provider.dart';
@@ -15,6 +15,8 @@ void main() {
           ChangeNotifierProvider(create: (context) => PasswordProvider()),
           ChangeNotifierProvider(create: (_) => PasswordProvider()..fetchPasswords()),
           ChangeNotifierProvider(create: (_) => LoginEntryProvider()),
+          ChangeNotifierProvider(create: (_) => LoadingProvider()),
+
         ],
     child:
     MaterialApp(

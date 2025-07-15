@@ -1,12 +1,12 @@
 import 'package:archinfotech/models/profile.dart';
-import 'package:archinfotech/provider/db_helper.dart';
+import 'package:archinfotech/screens/password_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../provider/login_entry_provider.dart';
 
 class CreateProfileScreen extends StatefulWidget {
-  const CreateProfileScreen({Key? key}) : super(key: key);
+  const CreateProfileScreen({super.key});
 
   @override
   _CreateProfileScreenState createState() => _CreateProfileScreenState();
@@ -14,7 +14,6 @@ class CreateProfileScreen extends StatefulWidget {
 
 class _CreateProfileScreenState extends State<CreateProfileScreen> {
   final _formKey = GlobalKey<FormState>();
-
   final nameController = TextEditingController();
   final passwordController = TextEditingController();
   final hintController = TextEditingController();
@@ -31,8 +30,6 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
 
   Future<void> saveProfile() async {
     if (_formKey.currentState!.validate()) {
-
-
       final profileEntry = ProfileEntry(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         name: nameController.text,
@@ -41,13 +38,23 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
         answer: hintAnswerController.text,
       );
 
+      // check if name is already exist
+      ProfileEntry? existingEntry = await Provider.of<LoginEntryProvider>(context, listen: false).findProfileByName(profileEntry.name);
+      if(existingEntry != null ) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Name already exists')),
+        );
+        return;
+      }
+      //good to create new one.
       Provider.of<LoginEntryProvider>(context, listen: false).addProfile(profileEntry);
       //Provider.of<LoginEntryProvider>(context, listen: false).addLoginEntry(newLogin);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile created successfully')),
       );
-
-      // You can also navigate or save to database, etc.
+      Navigator.pushReplacement(context,
+      MaterialPageRoute(builder: (context) => PasscodeLoginScreen())
+      );
     }
   }
   bool _obscurePasscode = true;

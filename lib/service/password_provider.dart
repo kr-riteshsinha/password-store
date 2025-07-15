@@ -9,7 +9,7 @@ class PasswordProvider  extends ChangeNotifier{
   List<PasswordEntry> get passwords => _passwords;
   Future<void> fetchPasswords() async {
     // _passwords = await _dbHelper.getPasswords();
-    _passwords = this.mockPasswordEntries;
+    _passwords = mockPasswordEntries;
 
     notifyListeners();
   }

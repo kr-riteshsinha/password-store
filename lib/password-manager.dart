@@ -4,6 +4,8 @@ import 'package:archinfotech/screens/setting-drawer.dart';
 import 'package:flutter/material.dart';
 
 class PasswordManagerApp extends StatelessWidget {
+  const PasswordManagerApp({super.key});
+
 
   @override
   Widget build(BuildContext context) {

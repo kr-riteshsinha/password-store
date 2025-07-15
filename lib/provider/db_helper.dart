@@ -105,13 +105,13 @@ class DbHelper {
 
   }
 
-  Future<ProfileEntry> fetchProfile(String name) async {
+  Future<ProfileEntry?> fetchProfile(String name) async {
     final db = await database;
-    final maps = await db.query(_profileTable,columns: ["id","name","password"],where: "name = ?", whereArgs: [name]);
+    final maps = await db.query(_profileTable,columns: ["id","name","password","hint","answer"],where: "name = ?", whereArgs: [name]);
     if(maps.isNotEmpty) {
       return ProfileEntry.fromMap(maps.first);
     } else {
-      throw Exception('Profile not found');
+      return null;
     }
   }
   Future<List<ProfileEntry>> fetchProfileEntries() async {
@@ -119,4 +119,26 @@ class DbHelper {
     final maps = await db.query(_profileTable);
     return maps.map((e) => ProfileEntry.fromMap(e)).toList();
   }
+
+  Future<int> updateProfile(ProfileEntry profile) async {
+    final db = await database;
+    return await db.update(
+      _profileTable, profile.toMap(), where: 'name = ?', whereArgs: [profile.name],   // selection arguments
+    );
+  }
+
+  Future<ProfileEntry?> forgetPassword(String name,String hint , String answer) async {
+    final db = await database;
+    final maps = await db.query( _profileTable,
+      columns: ["id", "name", "password", "hint", "answer"],
+      where: "name = ? AND hint = ? AND answer = ?",
+      whereArgs: [name, hint, answer],
+    );
+    if(maps.isNotEmpty) {
+      return ProfileEntry.fromMap(maps.first);
+    } else {
+      return null;
+    }
+  }
+
 }

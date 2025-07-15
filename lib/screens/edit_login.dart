@@ -8,7 +8,7 @@ import '../models/login_entry.dart';
 class EditLoginScreen extends StatefulWidget {
   final LoginEntry loginEntry;
 
-  const EditLoginScreen({Key? key, required this.loginEntry}) : super(key: key);
+  const EditLoginScreen({super.key, required this.loginEntry});
 
   @override
   _EditLoginScreenState createState() => _EditLoginScreenState();
@@ -16,10 +16,14 @@ class EditLoginScreen extends StatefulWidget {
 
 class _EditLoginScreenState extends State<EditLoginScreen> {
   late Map<String, TextEditingController> controllers;
+  final Map<String, bool> _obscureFields = {
+    'username': true,
+    'password': true,
+  };
 
   final List<Map<String, dynamic>> fields = [
     {'label': 'Title', 'key': 'title'},
-    {'label': 'Username', 'key': 'username'},
+    {'label': 'Username', 'key': 'username', 'obscure': true},
     {'label': 'Password', 'key': 'password', 'obscure': true},
     {'label': 'Website', 'key': 'website'},
     {'label': 'TOTP Secret', 'key': 'totpSecret', 'optional': true},
@@ -33,23 +37,23 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
       'username': TextEditingController(text: widget.loginEntry.username),
       'password': TextEditingController(text: widget.loginEntry.password),
       'website': TextEditingController(text: widget.loginEntry.website),
-      'totpSecret': TextEditingController(
-        text: widget.loginEntry.totpSecret ?? '',
-      ),
+      'totpSecret': TextEditingController(text: widget.loginEntry.totpSecret ?? ''),
     };
   }
 
   @override
   void dispose() {
-    controllers.values.forEach((controller) => controller.dispose());
+    for (var controller in controllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   void copyToClipboard(String label, String value) {
     Clipboard.setData(ClipboardData(text: value));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$label copied to clipboard')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$label copied to clipboard')),
+    );
   }
 
   void saveLogin() {
@@ -68,25 +72,24 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
       username: controllers['username']!.text,
       password: controllers['password']!.text,
       website: controllers['website']!.text,
-      totpSecret:
-          controllers['totpSecret']!.text.isNotEmpty
-              ? controllers['totpSecret']!.text
-              : null,
+      totpSecret: controllers['totpSecret']!.text.isNotEmpty
+          ? controllers['totpSecret']!.text
+          : null,
     );
 
-    Provider.of<LoginEntryProvider>(
-      context,
-      listen: false,
-    ).updateEntry(updated);
+    Provider.of<LoginEntryProvider>(context, listen: false).updateEntry(updated);
     Navigator.pop(context);
   }
 
   Widget buildStyledTextField(
-    String label,
-    TextEditingController controller, {
-    bool obscure = false,
-    bool optional = false,
-  }) {
+      String label,
+      TextEditingController controller, {
+        bool obscure = false,
+        bool optional = false,
+      }) {
+    final key = fields.firstWhere((field) => field['label'] == label)['key'];
+    final isSensitive = obscure;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -102,7 +105,7 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
           ),
           TextField(
             controller: controller,
-            obscureText: obscure,
+            obscureText: isSensitive ? _obscureFields[key] ?? false : false,
             decoration: InputDecoration(
               hintText: label + (optional ? " (Optional)" : ""),
               filled: true,
@@ -118,10 +121,21 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
                 ),
                 borderRadius: BorderRadius.circular(8),
               ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              suffixIcon: isSensitive
+                  ? IconButton(
+                icon: Icon(
+                  (_obscureFields[key] ?? false)
+                      ? Icons.visibility_off
+                      : Icons.visibility,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscureFields[key] = !_obscureFields[key]!;
+                  });
+                },
+              )
+                  : null,
             ),
           ),
         ],
@@ -149,7 +163,7 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
         child: Column(
           children: [
             ...fields.map(
-              (field) => buildStyledTextField(
+                  (field) => buildStyledTextField(
                 field['label'],
                 controllers[field['key']]!,
                 obscure: field['obscure'] ?? false,
@@ -167,10 +181,7 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
             ),
           ],
@@ -179,3 +190,4 @@ class _EditLoginScreenState extends State<EditLoginScreen> {
     );
   }
 }
+

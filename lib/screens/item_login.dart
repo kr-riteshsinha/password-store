@@ -43,7 +43,7 @@ class LoginItem extends StatelessWidget {
       ),
       onDismissed: (direction) {
         Provider.of<LoginEntryProvider>(context, listen: false)
-            .deleteEntry(loginEntry.id!);
+            .deleteEntry(loginEntry.id);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

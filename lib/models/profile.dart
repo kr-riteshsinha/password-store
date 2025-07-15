@@ -33,4 +33,20 @@ class ProfileEntry {
       'answer' :answer
     };
   }
+
+  ProfileEntry copyWith({
+    String? id,
+    String? name,
+    String? password,
+    String? hint,
+    String? answer,
+  }) {
+    return ProfileEntry(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      password: password ?? this.password,
+      hint: hint ?? this.hint,
+      answer: answer ?? this.answer,
+    );
+  }
 }

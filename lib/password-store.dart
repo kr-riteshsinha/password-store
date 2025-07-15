@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class PasswordStore extends StatefulWidget {
+  const PasswordStore({super.key});
+
   @override
   State<StatefulWidget> createState() {
     return _PasswordStore();
@@ -12,7 +14,7 @@ class PasswordStore extends StatefulWidget {
 
 class _PasswordStore extends State<PasswordStore> {
 
-  Widget mainContent = const Center( child: const Text(" No Exenses Found"));
+  Widget mainContent = const Center( child: Text(" No Exenses Found"));
 
   @override
   Widget build(BuildContext context) {

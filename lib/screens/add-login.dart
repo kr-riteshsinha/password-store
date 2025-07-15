@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/login_entry.dart';
 
 class AddLoginScreen extends StatefulWidget {
-  const AddLoginScreen({Key? key}) : super(key: key);
+  const AddLoginScreen({super.key});
 
   @override
   _AddLoginScreenState createState() => _AddLoginScreenState();
@@ -154,7 +154,6 @@ class _AddLoginScreenState extends State<AddLoginScreen> {
             ),
           ),
         ),
-    //   ),
      );
   }
 }
