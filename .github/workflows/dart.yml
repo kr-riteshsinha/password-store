@@ -1,41 +1,65 @@
-name: Build Windows EXE
+name: Flutter CI Multiplatform
 
 on:
-  push:
-    branches:
-      - main  # or change to your release branch
-  workflow_dispatch:  # allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
-  build:
-    name: Build Flutter Windows App
-    runs-on: windows-latest
-
+  build-macos:
+    runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.32.6
+          flutter-version: '3.32.6'
+      - run: flutter pub get
+      - run: flutter build macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: build/macos/Build/Products/Release/Runner.app
 
-      - name: Enable Windows Desktop
-        run: flutter config --enable-windows-desktop
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.6'
+      - run: flutter pub get
+      - run: flutter build ios --simulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: build/ios/iphonesimulator/Runner.app
 
-      - name: Install dependencies
-        run: flutter pub get
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.6'
+      - run: flutter pub get
+      - run: flutter build apk
+      - run: flutter build appbundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-builds
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
 
-      - name: Build Windows App
-        run: flutter build windows
-
-      - name: Zip the release
-        run: |
-          cd build/windows/runner/Release
-          Compress-Archive -Path * -DestinationPath app_windows.zip
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.6'
+      - run: flutter pub get
+      - run: flutter config --enable-windows-desktop
+      - run: flutter build windows
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: build/windows/runner/Release/app_windows.zip
+          path: build/windows/runner/Release
