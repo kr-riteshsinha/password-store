@@ -73,7 +73,7 @@ These features are **planned, not yet built**. Contributions are welcome.
 ### Setup and run
 
 ```bash
-git clone <your-fork-url>
+git clone https://github.com/kr-riteshsinha/password-store.git
 cd password-store
 flutter pub get
 flutter run            # pick a device, or e.g. `flutter run -d macos`
