@@ -4,7 +4,7 @@ This is the full list of known issues in Password Store. Fixes are being made on
 
 Issue numbers are stable. A unit test that covers a bug is marked `skip: 'ISSUES.md #N ...'`. When you fix issue #N, remove that `skip` so the test guards the fix.
 
-**Severity:** 🔴 Critical (security, data loss or crash) · 🟠 High (a feature is broken) · 🟡 Medium · ⚪ Low / cleanup
+**Severity:** 🔴 Critical (security, data loss or crash) · 🟠 High (a feature is broken) · 🟡 Medium · ⚪ Low / cleanup · ✅ Fixed
 
 Line numbers refer to commit `65a5a5a`.
 
@@ -71,6 +71,6 @@ Line numbers refer to commit `65a5a5a`.
 | 30 | ⚪ | UI polish: the `LoadingOverlay` is placed as the login screen's `floatingActionButton`, `withOpacity` is deprecated, the title "change Password" is lowercase, the Forgot Password AppBar says "Add Login", and there's a "No Exenses Found" typo. | `password_auth.dart:298`, `utils/loadingOverlay.dart`, `change_password.dart:97`, `forget_password.dart:51`, `password-store.dart:17` |
 | 31 | 🟠 | `build-windows.yml` sits in `.github/workflow/` (missing "s"), so GitHub Actions never runs it. | `.github/workflow/build-windows.yml` |
 | 32 | 🟠 | The CI Windows artifact path is `build/windows/runner/Release`, but Flutter ≥ 3.15 outputs to `build/windows/x64/runner/Release`, so the upload finds nothing. | `.github/workflows/dart.yml:67` |
-| 33 | 🟡 | CI only builds. It never runs `flutter analyze` or `flutter test`. | `.github/workflows/dart.yml` |
+| 33 | ✅ | **Fixed:** `.github/workflows/ci.yml` runs `flutter analyze` and `flutter test` on every pull request and on pushes to `main`. Existing lint warnings don't fail the build yet. | `.github/workflows/ci.yml` |
 | 34 | ⚪ | The `flutter_icons` config points to `assets/icons/APPIcon.png`, but the file is `AppIcon.png`. That breaks icon generation on case-sensitive filesystems such as Linux. | `pubspec.yaml:62,65` |
 | 35 | ⚪ | The pubspec `description` is still "A new Flutter project.", and the package is named `archinfotech`. | `pubspec.yaml:1-2` |

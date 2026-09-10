@@ -130,27 +130,20 @@ The full numbered list, with severity and file locations, is in **[ISSUES.md](IS
 
 Contributions of all sizes are welcome: bug fixes, features from the roadmap, tests, docs and UI polish.
 
-1. **Fork** the repository and create a branch from `main`, for example `fix/login-crash` or `feat/encryption`.
-2. **Make your change.** Keep pull requests focused on one thing.
-3. **Check it locally:**
-   ```bash
-   flutter analyze
-   flutter test
-   ```
-4. **Add tests** for new logic where practical.
-5. **Open a pull request** that says what changed and why. Link related issues and add screenshots for UI changes.
+Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, code style, tests and the pull request process. In short:
 
-Guidelines:
+1. Pick an issue from [ISSUES.md](ISSUES.md) or one labelled `good first issue`, and comment that you're working on it.
+2. Fork the repository, and create a branch from `main`.
+3. Run `flutter analyze` and `flutter test` before pushing.
+4. Open a pull request against `main`.
 
-- Follow the lints in `analysis_options.yaml` (`flutter_lints`).
-- Use `snake_case` for new Dart files.
-- Tests for known bugs are marked `skip: 'ISSUES.md #N ...'`. If your PR fixes issue #N, remove that `skip` and mark the issue fixed in `ISSUES.md`.
-- Never commit real credentials, keystores or signing files.
-- Changes that touch storage or crypto code get extra review. Explain the threat model and your library choices in the PR.
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 By contributing, you agree that your contributions are licensed under the project's [MIT License](LICENSE).
 
 ## Reporting security issues
+
+Full policy: [SECURITY.md](SECURITY.md).
 
 **Don't open a public issue for security vulnerabilities.** Report them privately through GitHub's **Security → Report a vulnerability** (private vulnerability reporting) on this repository. Give a description, steps to reproduce and the affected platforms. Please allow time for a fix before disclosing publicly.
 
