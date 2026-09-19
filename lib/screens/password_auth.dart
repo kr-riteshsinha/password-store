@@ -1,4 +1,3 @@
-import 'package:archinfotech/models/profile.dart';
 import 'package:archinfotech/provider/login_entry_provider.dart';
 import 'package:archinfotech/screens/new_profile_screen.dart';
 import 'package:archinfotech/utils/loadingOverlay.dart';
@@ -19,33 +18,26 @@ class PasscodeLoginScreen extends StatefulWidget {
 
 class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
   final passcodeController = TextEditingController();
-  final usernameController = TextEditingController();
-  String? _lastLoggedInUser;
-  bool _showUserSwitch = false;
-  List<ProfileEntry> _allProfiles = [];
   bool _obscurePassword = true;
+
+  /// Whether a vault profile exists. Null until the database has been checked.
+  bool? _hasProfile;
 
   @override
   void initState() {
     super.initState();
-    _loadAllProfiles();
-    _loadLastLoggedInUser();
+    _loadProfile();
     _checkRecentAuth();
   }
 
-  Future<void> _loadLastLoggedInUser() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _loadProfile() async {
+    final profile = await context.read<LoginEntryProvider>().getProfile();
+    if (!mounted) return;
     setState(() {
-      _lastLoggedInUser = prefs.getString('lastLoggedInUser');
-      if(_lastLoggedInUser !=null) {
-        usernameController.text = _lastLoggedInUser!;
-      }
-      if(_allProfiles == null) {
-        _loadAllProfiles();
-      }
-      _showUserSwitch = _allProfiles.length > 1;
+      _hasProfile = profile != null;
     });
   }
+
   Future<void> _checkRecentAuth() async {
     final prefs = await SharedPreferences.getInstance();
     final lastAuthTime = prefs.getInt('lastAuthTime');
@@ -64,89 +56,45 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
       }
     }
   }
-  Future<void> _loadAllProfiles() async {
-    _allProfiles = await Provider.of<LoginEntryProvider>(context,
-      listen: false,
-    ).getAllProfiles();
-
-    if (_allProfiles.length > 1) {
-      setState(() {
-        _showUserSwitch = true;
-      });
-    }
-  }
 
   Future<void> validatePasscode(BuildContext context) async {
     final loadingProvider = context.read<LoadingProvider>();
+    final loginProvider = context.read<LoginEntryProvider>();
     await loadingProvider.whileLoading(() async {
-      final enteredUsername = usernameController.text.trim();
       final entered = passcodeController.text.trim();
-      ProfileEntry? entry;
 
       if (entered.isEmpty) {
         showSnackbar("Please enter a passcode");
-      } else if (enteredUsername.isEmpty) {
-        showSnackbar("Please enter a username");
-
+        return;
       }
-        ProfileEntry? profileEntry = await Provider.of<LoginEntryProvider>(
-          context,
-          listen: false,
-        ).findProfileByName(enteredUsername);
 
-        if (profileEntry !=null ) {
-          if (profileEntry.password == entered) {
-            Provider.of<LoginEntryProvider>(
-              context,
-              listen: false,
-            ).saveLoginDetails(entry?.name);
+      final profile = await loginProvider.getProfile();
+      if (!mounted) return;
 
-            showSnackbar("Login successful");
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => PasswordManagerApp()),
-            );
-          }
-        } else {
+      if (profile == null) {
+        showSnackbar("No vault yet. Create one first.");
+        return;
+      }
+      if (profile.password != entered) {
         showSnackbar("Invalid passcode");
+        return;
       }
+
+      await loginProvider.saveLoginDetails(profile.name);
+      if (!mounted) return;
+
+      showSnackbar("Login successful");
+      Navigator.push(
+        this.context,
+        MaterialPageRoute(builder: (context) => PasswordManagerApp()),
+      );
     }, message: ' Logging in...');
   }
 
-  void _showUserSelectionDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Select User"),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: _allProfiles.length,
-            itemBuilder: (context, index) {
-              final profile = _allProfiles[index];
-              return ListTile(
-                title: Text(profile.name),
-                onTap: () {
-                  Provider.of<LoginEntryProvider>(
-                    context,
-                    listen: false,
-                  ).switchProfile(profile.name);
-                  Navigator.pop(context);
-                  setState(() {
-                    _lastLoggedInUser = profile.name;
-                    usernameController.text=_lastLoggedInUser!;
-                  });
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
   void showSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -155,6 +103,115 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
     super.dispose();
   }
 
+  /// First launch: there is no vault yet, so the only step is to create one.
+  List<Widget> _buildFirstRun() {
+    return [
+      const Text(
+        "Welcome",
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF464EB8),
+        ),
+      ),
+      const SizedBox(height: 12),
+      const Text(
+        "Set a passcode to create your vault on this device.",
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 24),
+      ElevatedButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => CreateProfileScreen()),
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6264A7),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          minimumSize: const Size(double.infinity, 50),
+        ),
+        child: const Text(
+          "Set Up Vault",
+          style: TextStyle(fontSize: 16, color: Colors.white),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildLogin() {
+    return [
+      const Text(
+        "Login",
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF464EB8),
+        ),
+      ),
+      const SizedBox(height: 24),
+      TextField(
+        controller: passcodeController,
+        obscureText: _obscurePassword,
+        decoration: InputDecoration(
+          labelText: "Passcode",
+          prefixIcon: const Icon(Icons.lock),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscurePassword ? Icons.visibility : Icons.visibility_off,
+            ),
+            onPressed: () {
+              setState(() {
+                _obscurePassword = !_obscurePassword;
+              });
+            },
+          ),
+        ),
+      ),
+      const SizedBox(height: 20),
+      ElevatedButton(
+        onPressed: () {
+          validatePasscode(context);
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6264A7),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          minimumSize: const Size(double.infinity, 50),
+        ),
+        child: const Text(
+          "Login",
+          style: TextStyle(fontSize: 16, color: Colors.white),
+        ),
+      ),
+      const SizedBox(height: 16),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          TextButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => ForgotPasswordScreen()),
+              );
+            },
+            child: const Text(
+              "Forgot Passcode?",
+              style: TextStyle(
+                color: Color(0xFF464EB8),
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,115 +237,10 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
                     repeat: true,
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    "Login",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF464EB8),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: usernameController,
-                    decoration: InputDecoration(
-                      labelText: "Username",
-                      prefixIcon: const Icon(Icons.person),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      suffixIcon: _showUserSwitch
-                          ? IconButton(
-                        icon: const Icon(Icons.arrow_drop_down),
-                        onPressed: _showUserSelectionDialog,
-                      )
-                          : null,
-                    ),
-                    readOnly: _showUserSwitch,
-                    onTap: _showUserSwitch ? _showUserSelectionDialog : null,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: passcodeController,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      prefixIcon: const Icon(Icons.lock),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility
-                              : Icons.visibility_off,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () {
-                      validatePasscode(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6264A7),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      minimumSize: const Size(double.infinity, 50),
-                    ),
-                    child: const Text(
-                      "Login",
-                      style: TextStyle(fontSize: 16, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ForgotPasswordScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          "Forgot Password?",
-                          style: TextStyle(
-                            color: Color(0xFF464EB8),
-                            decoration: TextDecoration.underline,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => CreateProfileScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          "Create Account",
-                          style: TextStyle(
-                            color: Color(0xFF464EB8),
-                            decoration: TextDecoration.underline,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  if (_hasProfile == false)
+                    ..._buildFirstRun()
+                  else
+                    ..._buildLogin(),
                 ],
               ),
             ),
@@ -298,5 +250,4 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
       floatingActionButton: const LoadingOverlay(),
     );
   }
-
 }

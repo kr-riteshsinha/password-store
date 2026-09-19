@@ -57,36 +57,66 @@ class LoginEntryProvider with ChangeNotifier {
     await DbHelper.instance.AddProfile(entry);
   }
 
-  Future<List<ProfileEntry>> getCurrentProfile() async {
-    return await DbHelper.instance.fetchProfileEntries().asStream().first;
-  }
-  Future<List<ProfileEntry>> getAllProfiles() async {
-    return await DbHelper.instance.fetchProfileEntries();
+  /// The vault's single profile, or null before one has been created.
+  Future<ProfileEntry?> getProfile() async {
+    return await DbHelper.instance.fetchVaultProfile();
   }
 
   Future<void> updateProfile(ProfileEntry profile) async {
      await DbHelper.instance.updateProfile(profile);
   }
 
-  Future<ProfileEntry?> findProfileByName(String name) async {
-    return await DbHelper.instance.fetchProfile(name);
+  /// First-run setup: creates the vault's single profile. Throws a
+  /// [StateError] if a vault already exists.
+  Future<ProfileEntry> createVault({
+    required String name,
+    required String passcode,
+    required String hintQuestion,
+    required String hintAnswer,
+  }) async {
+    final profile = ProfileEntry(
+      id: UUIDv4().toString(),
+      name: name.trim(),
+      password: passcode,
+      hint: hintQuestion.trim(),
+      answer: hintAnswer.trim(),
+    );
+    await DbHelper.instance.AddProfile(profile);
+    return profile;
+  }
+
+  /// The recovery question to show, or null if there is no usable one.
+  /// Vaults created before the ISSUES.md #14 fix stored the passcode in
+  /// `hint`, so that value must never be shown.
+  Future<String?> recoveryQuestion() async {
+    final profile = await getProfile();
+    if (profile == null) return null;
+    final hint = profile.hint.trim();
+    if (hint.isEmpty || profile.hint == profile.password) return null;
+    return hint;
+  }
+
+  /// Whether [answer] matches the stored recovery answer, ignoring case and
+  /// surrounding spaces.
+  Future<bool> verifyRecoveryAnswer(String answer) async {
+    final profile = await getProfile();
+    if (profile == null) return false;
+    final entered = answer.trim().toLowerCase();
+    return entered.isNotEmpty && entered == profile.answer.trim().toLowerCase();
+  }
+
+  /// Replaces the vault passcode after a successful recovery. Returns false
+  /// if there is no vault.
+  Future<bool> resetPasscode(String newPasscode) async {
+    final profile = await getProfile();
+    if (profile == null) return false;
+    await DbHelper.instance.updateProfile(profile.copyWith(password: newPasscode));
+    return true;
   }
 
 
-  Future<ProfileEntry?> forgetPassword(String name,String hint, String answer) async {
-    return await DbHelper.instance.forgetPassword(name,hint,answer);
-  }
-
-  Future<void> saveLoginDetails(String ?name,) async {
+  Future<void> saveLoginDetails(String name) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('username', name!);
-  }
-  String? _currentProfileName;
-
-  Future<void> switchProfile(String profileName) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('currentProfile', profileName);
-    _currentProfileName = profileName;
-    notifyListeners();
+    await prefs.setString('username', name);
   }
 }

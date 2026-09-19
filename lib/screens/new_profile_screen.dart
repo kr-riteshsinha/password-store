@@ -1,5 +1,5 @@
-import 'package:archinfotech/models/profile.dart';
-import 'package:archinfotech/screens/password_auth.dart';
+import 'package:archinfotech/password-manager.dart';
+import 'package:archinfotech/utils/passcode_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +16,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
   final passwordController = TextEditingController();
+  final confirmController = TextEditingController();
   final hintController = TextEditingController();
   final hintAnswerController = TextEditingController();
 
@@ -24,38 +25,41 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
   void dispose() {
     nameController.dispose();
     passwordController.dispose();
+    confirmController.dispose();
     hintController.dispose();
+    hintAnswerController.dispose();
     super.dispose();
   }
 
   Future<void> saveProfile() async {
-    if (_formKey.currentState!.validate()) {
-      final profileEntry = ProfileEntry(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: nameController.text,
-        password: passwordController.text,
-        hint: passwordController.text,
-        answer: hintAnswerController.text,
-      );
+    if (!_formKey.currentState!.validate()) return;
 
-      // check if name is already exist
-      ProfileEntry? existingEntry = await Provider.of<LoginEntryProvider>(context, listen: false).findProfileByName(profileEntry.name);
-      if(existingEntry != null ) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Name already exists')),
-        );
-        return;
-      }
-      //good to create new one.
-      Provider.of<LoginEntryProvider>(context, listen: false).addProfile(profileEntry);
-      //Provider.of<LoginEntryProvider>(context, listen: false).addLoginEntry(newLogin);
+    // Single-profile vault: only one profile can ever be created.
+    final loginProvider = Provider.of<LoginEntryProvider>(context, listen: false);
+    if (await loginProvider.getProfile() != null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile created successfully')),
+        const SnackBar(content: Text('A vault already exists on this device')),
       );
-      Navigator.pushReplacement(context,
-      MaterialPageRoute(builder: (context) => PasscodeLoginScreen())
-      );
+      return;
     }
+    final profile = await loginProvider.createVault(
+      name: nameController.text,
+      passcode: passwordController.text.trim(),
+      hintQuestion: hintController.text,
+      hintAnswer: hintAnswerController.text,
+    );
+    await loginProvider.saveLoginDetails(profile.name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Vault created')),
+    );
+    // Setting the passcode is the first login, so go straight to the vault.
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => PasswordManagerApp()),
+      (route) => false,
+    );
   }
   bool _obscurePasscode = true;
   @override
@@ -65,7 +69,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          "Create Profile",
+          "Set Up Your Vault",
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -92,7 +96,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        "New Profile",
+                        "Create your vault",
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -103,7 +107,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                       TextFormField(
                         controller: nameController,
                         decoration: InputDecoration(
-                          labelText: "Name",
+                          labelText: "Your name",
                           filled: true,
                           fillColor: Colors.grey.shade100,
                           border: OutlineInputBorder(
@@ -119,7 +123,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                         controller: passwordController,
                         obscureText: _obscurePasscode,
                         decoration: InputDecoration(
-                          labelText: "Password",
+                          labelText: "Passcode",
                           filled: true,
                           fillColor: Colors.grey.shade100,
                           border: OutlineInputBorder(
@@ -137,8 +141,23 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                           )
                         ),
                         validator: (value) =>
-                        value!.isEmpty ? 'Please enter a password' : null,
-
+                        newPasscodeError(value!, value),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: confirmController,
+                        obscureText: _obscurePasscode,
+                        decoration: InputDecoration(
+                          labelText: "Confirm passcode",
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        validator: (value) =>
+                        value != passwordController.text ? "Passcodes don't match" : null,
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -159,7 +178,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                       TextFormField(
                         controller: hintAnswerController,
                         decoration: InputDecoration(
-                          labelText: "Hint Answer",
+                          labelText: "Answer (used if you forget the passcode)",
                           filled: true,
                           fillColor: Colors.grey.shade100,
                           border: OutlineInputBorder(
@@ -168,7 +187,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                           ),
                         ),
                         validator: (value) =>
-                        value!.isEmpty ? 'Please enter a hint question' : null,
+                        value!.trim().isEmpty ? 'Please enter an answer' : null,
                       ),
 
                       const SizedBox(height: 24),
@@ -185,7 +204,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                           ),
                         ),
                         child: const Text(
-                          "Save Profile",
+                          "Create Vault",
                           style: TextStyle(fontSize: 16, color: Colors.white),
                         ),
                       ),

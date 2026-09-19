@@ -31,8 +31,8 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 | Area | What it does |
 |------|--------------|
 | Single-user vault | One local profile protected by a passcode, like the macOS Passwords app. Set it up once on first launch. |
-| Passcode login | Unlock the vault with your name and passcode (show/hide passcode toggle). |
-| Password recovery | Recover access with your hint question and answer. |
+| Passcode login | Unlock the vault with your passcode alone. There is no username (show/hide passcode toggle). |
+| Passcode recovery | Forgot the passcode? Answer your recovery question and set a new one. |
 | Change passcode | Change your passcode from the settings drawer. |
 | Save logins | Store a title, username, password, website and an optional TOTP secret for each account. |
 | Edit and delete | Tap an entry to edit it. Swipe left to delete it, with **Undo**. |
@@ -127,7 +127,8 @@ environment from nothing: they install the Flutter SDK at the version CI uses,
 put it on your `PATH`, install the system packages the tests need, and run
 `flutter pub get`.
 
-On first launch, tap **Create Account** on the login screen, set a name, passcode and recovery hint, then log in.
+On first launch, tap **Set Up Vault**, then enter your name, a passcode and a
+recovery question and answer. The vault opens straight away.
 
 ### Setting up the development environment
 

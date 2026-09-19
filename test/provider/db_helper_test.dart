@@ -97,6 +97,32 @@ void main() {
       expect(found?.toMap(), _profile.toMap());
     });
 
+    test('fetchVaultProfile returns null when no profile exists', () async {
+      expect(await db.fetchVaultProfile(), isNull);
+    });
+
+    test('fetchVaultProfile returns the saved profile', () async {
+      await db.AddProfile(_profile);
+
+      expect((await db.fetchVaultProfile())?.toMap(), _profile.toMap());
+    });
+
+    test('fetchVaultProfile returns the oldest profile when an old install has several', () async {
+      final raw = await db.database;
+      await raw.insert('profile', _profile.toMap());
+      await raw.insert('profile', _profile.copyWith(id: 'p2', name: 'someone').toMap());
+
+      expect((await db.fetchVaultProfile())?.id, 'p1');
+    });
+
+    test('AddProfile with the same id replaces the profile', () async {
+      await db.AddProfile(_profile);
+
+      await db.AddProfile(_profile.copyWith(password: '5678'));
+
+      expect((await db.fetchProfileEntries()).single.password, '5678');
+    });
+
     test('fetchProfileEntries lists the saved profile', () async {
       await db.AddProfile(_profile);
 
@@ -154,7 +180,6 @@ void main() {
 
         expect(await db.fetchProfileEntries(), hasLength(1));
       },
-      skip: 'ISSUES.md #18: more than one profile can be created',
     );
   });
 }
