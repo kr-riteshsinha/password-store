@@ -1,0 +1,22 @@
+# Normalise line endings so the setup scripts work on every checkout.
+* text=auto eol=lf
+
+# Batch files only run reliably with CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts must stay LF, even on Windows checkouts.
+*.sh text eol=lf
+
+# Binary assets: never touch them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.json linguist-language=JSON

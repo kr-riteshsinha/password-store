@@ -13,16 +13,39 @@ Please read this guide before you open an issue or pull request. Everyone taking
 
 ## Development setup
 
-1. Install the [Flutter SDK](https://docs.flutter.dev/get-started/install). CI uses **3.32.6**, and the Dart SDK must be `^3.7.0`.
-2. Fork the repository and clone your fork:
-   ```bash
-   git clone https://github.com/<your-username>/password-store.git
-   cd password-store
-   flutter pub get
-   ```
-3. Run the app with `flutter run` (for example `flutter run -d macos`).
+Fork the repository, clone your fork, and run the setup script:
 
-On Linux, the database tests need the system SQLite library: `sudo apt-get install libsqlite3-dev`.
+```bash
+git clone https://github.com/<your-username>/password-store.git
+cd password-store
+
+./install.sh          # macOS and Linux
+install.bat           # Windows
+```
+
+It installs the Flutter SDK at the version CI uses (**3.32.6**), adds it to your
+PATH, installs the system packages the tests need, and runs `flutter pub get`.
+It skips anything you already have, so it's safe to re-run. Use `--check`
+(`/check` on Windows) to see what's missing without installing anything.
+
+Anything that needs admin rights - Xcode's toolchain switch, Android Studio,
+Visual Studio - is reported with the exact command to run, never run for you.
+
+Then run the app:
+
+```bash
+flutter run -d macos      # or: flutter run
+```
+
+<details>
+<summary>Setting it up by hand instead</summary>
+
+1. Install the [Flutter SDK](https://docs.flutter.dev/get-started/install). CI uses **3.32.6**, and the Dart SDK must be `^3.7.0`.
+2. Run `flutter pub get` in the project directory.
+3. On Linux, install the system SQLite library the database tests need: `sudo apt-get install libsqlite3-dev`.
+4. On macOS, point the toolchain at Xcode: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+
+</details>
 
 ## Making a change
 

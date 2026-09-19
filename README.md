@@ -11,6 +11,8 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 ## Table of contents
 
 - [Features](#features)
+- [Your storage, your control](#your-storage-your-control)
+- [Share a credential](#share-a-credential)
 - [Roadmap](#roadmap)
 - [Supported platforms](#supported-platforms)
 - [Getting started](#getting-started)
@@ -38,6 +40,45 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 | Copy to clipboard | One-tap copy of a username or password. |
 | Offline and local | All data stays on the device in SQLite. There is no server and no account, and nothing is sent over the network. |
 
+## Your storage, your control
+
+**Planned, not yet built.** See the [Roadmap](#roadmap).
+
+The vault is designed to be *bring your own storage*. Instead of syncing your passwords through a server run by this project, you choose where the encrypted vault file lives, and you keep the account that holds it:
+
+- **iCloud Drive** on iOS and macOS
+- **Google Drive** on Android and elsewhere
+- **Any third-party bucket or folder** you already use, such as S3-compatible object storage, Dropbox, OneDrive or a self-hosted WebDAV share
+
+Because the destination is yours, your credentials stay under your control and are managed by you. There is no project-operated account, no project-operated server, and no copy of your vault that we can read, hand over or lose.
+
+Two rules make that safe, and both are prerequisites for the feature:
+
+1. **The vault is encrypted on the device, before it ever leaves it.** The storage provider only ever receives ciphertext, so an iCloud, Google or bucket account compromise does not expose your logins.
+2. **The key never goes to the provider.** It is derived from your passcode and stays on your devices, which means the provider cannot decrypt the file and neither can we.
+
+The trade-off is that recovery is yours too: if you lose the passcode and your recovery key, no one can restore the vault for you.
+
+## Share a credential
+
+**Planned, not yet built.** See the [Roadmap](#roadmap).
+
+Sometimes a login belongs to more than one person: a streaming account shared with family, a Wi-Fi password, a tool a small team signs into. Rather than sending it over chat or email in plain text, you will be able to share a single credential from your vault with another person, and only that credential — the rest of your vault is never involved.
+
+You pick an entry, tap **Share**, and name the recipient:
+
+- **Another Password Vault user**, if they already use this app
+- **A phone number**, which the app matches to a Password Vault user
+
+The shared entry lands in the recipient's own vault, where they unlock it with their own passcode. Sharing is per entry: you choose one login, not a folder and not the whole vault.
+
+Some things still to be designed before this can be built:
+
+- **The credential must be encrypted for the recipient**, on your device, so that whatever carries it between the two phones never sees the password.
+- **Matching a phone number to a user needs a directory**, and a directory is a service. The app has no server today, and adding one has to be weighed against the "your data stays yours" design in [Your storage, your control](#your-storage-your-control).
+- **Revoking a share** cannot claw back a password the other person has already read, so the honest behaviour is to stop future updates and prompt you to change the password.
+- **Sharing is a trust decision, not just a transfer.** The recipient can read, copy and re-share what you send them.
+
 ## Roadmap
 
 These features are **planned, not yet built**. Contributions are welcome.
@@ -48,8 +89,12 @@ These features are **planned, not yet built**. Contributions are welcome.
 - [ ] TOTP code generation from the stored secret
 - [ ] Password generator and strength indicator
 - [ ] Encrypted backup, import and export
-- [ ] Multi-device sync (the "iCloud" item in the settings drawer is a placeholder)
-- [ ] Biometric unlock (Face ID / fingerprint)
+- [ ] Bring-your-own-storage sync: the encrypted vault file synced through the user's own iCloud Drive, Google Drive or third-party bucket (the "iCloud" item in the settings drawer is a placeholder) — see [Your storage, your control](#your-storage-your-control)
+- [ ] Conflict resolution and merge when the same vault is edited on two devices
+- [ ] Share a single credential with another Password Vault user, by user or phone number, end-to-end encrypted — see [Share a credential](#share-a-credential)
+- [ ] Manage and revoke shares, and see what has been shared with you
+- [ ] Quick unlock with Face ID / Touch ID / fingerprint or a short PIN: the vault key is kept in the OS Keychain / Keystore, and after a few wrong PINs the app falls back to the full passcode, which is also required after a restart and every few days ([#37](https://github.com/kr-riteshsinha/password-store/issues/37))
+- [ ] Recovery key shown once at setup, replacing the hint question and answer, so recovery still works once the vault is encrypted ([#38](https://github.com/kr-riteshsinha/password-store/issues/38))
 - [ ] Windows and Linux database support
 
 ## Supported platforms
@@ -65,21 +110,102 @@ These features are **planned, not yet built**. Contributions are welcome.
 
 ## Getting started
 
-### Prerequisites
-
-- [Flutter SDK](https://docs.flutter.dev/get-started/install). CI uses **3.32.6**. The Dart SDK must be `^3.7.0`.
-- The platform toolchain for your target: Xcode for iOS/macOS, Android Studio / Android SDK for Android, or Visual Studio for Windows.
-
-### Setup and run
+### Quick start
 
 ```bash
 git clone https://github.com/kr-riteshsinha/password-store.git
 cd password-store
-flutter pub get
-flutter run            # pick a device, or e.g. `flutter run -d macos`
+
+./install.sh           # macOS and Linux
+install.bat            # Windows
+
+flutter run            # or: flutter run -d macos
 ```
 
+That's the whole setup. `install.sh` / `install.bat` build the development
+environment from nothing: they install the Flutter SDK at the version CI uses,
+put it on your `PATH`, install the system packages the tests need, and run
+`flutter pub get`.
+
 On first launch, tap **Create Account** on the login screen, set a name, passcode and recovery hint, then log in.
+
+### Setting up the development environment
+
+You don't need Flutter installed before you start. The setup script handles it.
+
+**What it does**
+
+| Step | Detail |
+|------|--------|
+| Installs Flutter | Version **3.32.6**, the same version CI pins, into `~/development/flutter` (`%USERPROFILE%\development\flutter` on Windows). Set `FLUTTER_INSTALL_DIR` to put it elsewhere. |
+| Puts it on your `PATH` | Appends to `~/.zshrc`, `~/.bashrc`, `~/.bash_profile` or fish config; `setx` on Windows. Open a new terminal afterwards. |
+| Installs test dependencies | On Linux, `libsqlite3-dev` and the GTK desktop build packages. The database tests fail without it. |
+| Sets the project up | Runs `flutter pub get`, then `flutter doctor`. |
+| Reports the rest | Xcode, CocoaPods, Android Studio and Visual Studio are checked and reported with the exact command to install them. |
+
+**What it won't do**
+
+It never runs `sudo` behind your back, and it never installs a multi-gigabyte
+IDE for you. Anything needing admin rights is either confirmed first or printed
+for you to run yourself. Anything already installed is left alone, so the script
+is safe to re-run.
+
+**Options**
+
+| macOS / Linux | Windows | What it does |
+|---------------|---------|--------------|
+| `./install.sh` | `install.bat` | Install what's missing, then set the project up |
+| `./install.sh --check` | `install.bat /check` | Report what's missing, change nothing |
+| `./install.sh --yes` | `install.bat /yes` | Don't prompt, for CI or unattended installs |
+| `./install.sh --help` | `install.bat /help` | Usage |
+
+Start with `--check` if you'd rather see what it plans to touch:
+
+```console
+$ ./install.sh --check
+==> Checking Flutter
+  x Flutter is not installed
+==> Checking platform toolchains
+  + Xcode is installed
+  x xcode-select points at /Library/Developer/CommandLineTools, not Xcode
+```
+
+### Toolchain for each build target
+
+The setup script reports on all of these; only install the ones you'll build for.
+
+| You want to build for | You also need |
+|-----------------------|---------------|
+| macOS or iOS | Xcode from the App Store, plus CocoaPods (`sudo gem install cocoapods`). Point the toolchain at Xcode: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
+| Android | [Android Studio](https://developer.android.com/studio) and a JDK, then `flutter doctor --android-licenses` |
+| Windows desktop | Visual Studio 2022 with the **Desktop development with C++** workload |
+| Linux desktop | `clang cmake ninja-build pkg-config libgtk-3-dev` (the script installs these) |
+| Running the tests | On Linux, `libsqlite3-dev` (the script installs this) |
+
+Run `flutter doctor` at any point to see what Flutter itself thinks is missing.
+
+<details>
+<summary>Setting it up by hand instead</summary>
+
+1. Install the [Flutter SDK](https://docs.flutter.dev/get-started/install). CI uses **3.32.6**, and the Dart SDK must be `^3.7.0`.
+2. Add `<sdk>/bin` to your `PATH`.
+3. In the project directory, run `flutter pub get`.
+4. On Linux, install the SQLite headers the database tests need: `sudo apt-get install libsqlite3-dev`.
+5. On macOS, point the toolchain at Xcode: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+6. Run `flutter doctor` and fix whatever it flags for your target.
+
+</details>
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `flutter: command not found` right after the script ran | The `PATH` change only applies to new shells. Open a new terminal, or `source ~/.zshrc`. |
+| Database tests fail on Linux with a missing-library error | `sudo apt-get install libsqlite3-dev` — `sqflite_common_ffi` needs the system SQLite. |
+| `CocoaPods not installed` on macOS | `sudo gem install cocoapods`, then `cd ios && pod install`. |
+| Xcode build fails with a command-line-tools error | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, then `sudo xcodebuild -runFirstLaunch`. |
+| The app runs but no data saves on Windows or Linux | Expected. `sqflite` has no desktop support yet — see [Supported platforms](#supported-platforms). |
+| Your Flutter is a different version from CI | Usually fine. To match exactly: `flutter version 3.32.6`. |
 
 ### Useful commands
 
@@ -87,13 +213,19 @@ On first launch, tap **Create Account** on the login screen, set a name, passcod
 flutter analyze                      # static analysis / lint
 flutter test                         # run all tests
 flutter test test/models/login_entry_test.dart   # run one test file
+flutter run -d macos                 # run on macOS desktop
 flutter build apk                    # Android (also: appbundle, ios, macos, windows)
 dart run flutter_launcher_icons      # regenerate app icons
 ```
 
 ### Continuous integration
 
-GitHub Actions (`.github/workflows/dart.yml`) builds macOS, iOS (simulator), Android and Windows on every push to `main`, and uploads the builds as workflow artifacts.
+Two GitHub Actions workflows run on this repository:
+
+- **`.github/workflows/ci.yml`** runs on every pull request and on pushes to `main`. It runs `flutter analyze --no-fatal-infos --no-fatal-warnings` (so only analyzer *errors* fail the build) and `flutter test`. Run both locally before you push.
+- **`.github/workflows/dart.yml`** builds macOS, iOS (simulator), Android and Windows on pushes to `main`, and uploads the builds as workflow artifacts.
+
+Both pin Flutter **3.32.6**, which is the version the setup script installs.
 
 ## Project structure
 
