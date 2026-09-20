@@ -292,14 +292,14 @@ else
      ldconfig -p 2>/dev/null | grep -q libsqlcipher; then
     ok "SQLite and SQLCipher libraries"
   else
-    fail "libsqlite3-dev / libsqlcipher0 are missing (the database tests need them)"
-    if have apt-get && [ "$CHECK_ONLY" -eq 0 ] && confirm "Install libsqlite3-dev, libsqlcipher0 and the Linux desktop build deps with sudo?"; then
+    fail "libsqlite3-dev / libsqlcipher-dev are missing (the database tests need them)"
+    if have apt-get && [ "$CHECK_ONLY" -eq 0 ] && confirm "Install libsqlite3-dev, libsqlcipher-dev and the Linux desktop build deps with sudo?"; then
       sudo apt-get update
-      sudo apt-get install -y libsqlite3-dev libsqlcipher0 clang cmake ninja-build pkg-config libgtk-3-dev
+      sudo apt-get install -y libsqlite3-dev libsqlcipher-dev clang cmake ninja-build pkg-config libgtk-3-dev
       ok "Installed Linux build dependencies"
     else
       note "Install them with:"
-      note "  sudo apt-get install -y libsqlite3-dev libsqlcipher0 clang cmake ninja-build pkg-config libgtk-3-dev"
+      note "  sudo apt-get install -y libsqlite3-dev libsqlcipher-dev clang cmake ninja-build pkg-config libgtk-3-dev"
     fi
   fi
 fi

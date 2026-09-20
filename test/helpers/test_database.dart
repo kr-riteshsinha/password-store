@@ -27,14 +27,14 @@ Future<void> initTestDatabase() async {
 /// the other.
 ///
 /// Needs SQLCipher installed: `brew install sqlcipher` on macOS,
-/// `sudo apt-get install libsqlcipher0` on Linux. Set `SQLCIPHER_LIB` to
+/// `sudo apt-get install libsqlcipher-dev` on Linux. Set `SQLCIPHER_LIB` to
 /// override the path.
 Future<void> initEncryptedTestDatabase() async {
   final library = findSqlCipherLibrary();
   if (library == null) {
     throw StateError(
       'SQLCipher was not found. Install it (brew install sqlcipher, or '
-      'sudo apt-get install libsqlcipher0) or set SQLCIPHER_LIB.',
+      'sudo apt-get install libsqlcipher-dev) or set SQLCIPHER_LIB.',
     );
   }
   open
@@ -64,17 +64,38 @@ Future<void> initEncryptedTestDatabase() async {
 }
 
 /// Path to a SQLCipher shared library, or null when none is installed.
+///
+/// The file name varies by distribution and package version, so the library
+/// directories are searched rather than guessed exactly.
 String? findSqlCipherLibrary() {
-  final candidates = [
-    Platform.environment['SQLCIPHER_LIB'],
-    '/opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib',
-    '/usr/local/opt/sqlcipher/lib/libsqlcipher.dylib',
-    '/usr/lib/x86_64-linux-gnu/libsqlcipher.so.0',
-    '/usr/lib/aarch64-linux-gnu/libsqlcipher.so.0',
-    '/usr/lib/libsqlcipher.so.0',
+  final fromEnv = Platform.environment['SQLCIPHER_LIB'];
+  if (fromEnv != null && fromEnv.isNotEmpty && File(fromEnv).existsSync()) {
+    return fromEnv;
+  }
+
+  const directories = [
+    '/opt/homebrew/opt/sqlcipher/lib',
+    '/usr/local/opt/sqlcipher/lib',
+    '/usr/lib/x86_64-linux-gnu',
+    '/usr/lib/aarch64-linux-gnu',
+    '/usr/lib',
+    '/usr/local/lib',
   ];
-  for (final path in candidates) {
-    if (path != null && path.isNotEmpty && File(path).existsSync()) return path;
+  for (final directory in directories) {
+    final dir = Directory(directory);
+    if (!dir.existsSync()) continue;
+    final matches = dir
+        .listSync(followLinks: true)
+        .whereType<File>()
+        .map((f) => f.path)
+        .where((path) {
+          final name = path.split('/').last;
+          return name.startsWith('libsqlcipher.') &&
+              (name.endsWith('.dylib') || name.contains('.so'));
+        })
+        .toList()
+      ..sort();
+    if (matches.isNotEmpty) return matches.first;
   }
   return null;
 }
