@@ -3,22 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ProfileEntry', () {
-    final profile = ProfileEntry(
-      id: 'p1',
-      name: 'ritesh',
-      password: '1234',
-      hint: 'Favorite color?',
-      answer: 'Blue',
-    );
+    final profile = ProfileEntry(id: 'p1', name: 'ritesh');
 
     test('toMap contains every database column', () {
-      expect(profile.toMap(), {
-        'id': 'p1',
-        'name': 'ritesh',
-        'password': '1234',
-        'hint': 'Favorite color?',
-        'answer': 'Blue',
-      });
+      expect(profile.toMap(), {'id': 'p1', 'name': 'ritesh'});
+    });
+
+    test('holds no passcode, question or answer', () {
+      // They are not stored: the passcode and answer wrap the database key,
+      // and the question lives in vault_meta.json.
+      expect(profile.toMap().keys, ['id', 'name']);
     });
 
     test('fromMap(toMap()) round-trips every field', () {
@@ -26,13 +20,10 @@ void main() {
     });
 
     test('copyWith replaces only the given fields', () {
-      final changed = profile.copyWith(password: '5678');
+      final changed = profile.copyWith(name: 'someone');
 
-      expect(changed.password, '5678');
-      expect(
-        changed.toMap()..remove('password'),
-        profile.toMap()..remove('password'),
-      );
+      expect(changed.name, 'someone');
+      expect(changed.id, profile.id);
     });
 
     test('copyWith with no arguments returns an equal copy', () {

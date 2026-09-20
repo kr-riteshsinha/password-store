@@ -18,7 +18,7 @@ typedef EncryptedDatabaseOpener = Future<Database> Function(
 
 class DbHelper {
   static const _dbName = 'logins.db';
-  static const _dbVersion = 2;
+  static const _dbVersion = 3;
   static const _tableName = 'login_entries';
   static const _profileTable = "profile";
 
@@ -34,7 +34,7 @@ class DbHelper {
   bool get isOpen => _db != null;
 
   /// The open database. Callers must unlock the vault first, with
-  /// [openEncrypted] or [openLegacy].
+  /// [openEncrypted].
   Future<Database> get database async {
     final db = _db;
     if (db == null) {
@@ -74,39 +74,35 @@ class DbHelper {
     return _db!;
   }
 
-  /// Opens an unencrypted vault created before encryption existed.
-  /// Removed once migration lands (ISSUES.md #1).
-  Future<Database> openLegacy() async {
-    await close();
-    _db = await openDatabase(
-      await databaseFile(),
-      version: _dbVersion,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
-    return _db!;
-  }
-
   /// Locks the vault by closing the database and dropping the key with it.
   Future<void> close() async {
     await _db?.close();
     _db = null;
   }
 
+  /// Each version gets its own branch: running every statement on every
+  /// upgrade would try to create tables that already exist.
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < newVersion) {
-      await db.execute('''
-      CREATE TABLE $_profileTable (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        password TEXT NOT NULL,
-        hint TEXT NOT NULL,
-        answer TEXT
-      )
-      
-    ''');
+    if (oldVersion < 2) {
+      // v1 had no profile table at all.
+      await db.execute(_createProfileTable);
+    } else if (oldVersion < 3) {
+      // v2 kept the passcode, recovery question and answer in the profile
+      // row. None of them are stored any more, so the columns go. SQLite
+      // cannot drop columns portably, hence the rebuild.
+      await db.execute('CREATE TABLE ${_profileTable}_new (id TEXT PRIMARY KEY, name TEXT NOT NULL)');
+      await db.execute('INSERT INTO ${_profileTable}_new (id, name) SELECT id, name FROM $_profileTable');
+      await db.execute('DROP TABLE $_profileTable');
+      await db.execute('ALTER TABLE ${_profileTable}_new RENAME TO $_profileTable');
     }
   }
+
+  static const _createProfileTable = '''
+      CREATE TABLE profile (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    ''';
 
   Future _onCreate(Database db, int version) async {
     await db.execute('''
@@ -120,16 +116,7 @@ class DbHelper {
       )
       
     ''');
-    await db.execute('''
-      CREATE TABLE $_profileTable (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        password TEXT NOT NULL,
-        hint TEXT NOT NULL,
-        answer TEXT
-      )
-      
-    ''');
+    await db.execute(_createProfileTable);
   }
 
   Future<void> insertEntry(LoginEntry entry) async {
@@ -174,15 +161,6 @@ class DbHelper {
     return maps.isEmpty ? null : ProfileEntry.fromMap(maps.first);
   }
 
-  Future<ProfileEntry?> fetchProfile(String name) async {
-    final db = await database;
-    final maps = await db.query(_profileTable,columns: ["id","name","password","hint","answer"],where: "name = ?", whereArgs: [name]);
-    if(maps.isNotEmpty) {
-      return ProfileEntry.fromMap(maps.first);
-    } else {
-      return null;
-    }
-  }
   Future<List<ProfileEntry>> fetchProfileEntries() async {
     final db = await database;
     final maps = await db.query(_profileTable);
@@ -192,22 +170,9 @@ class DbHelper {
   Future<int> updateProfile(ProfileEntry profile) async {
     final db = await database;
     return await db.update(
-      _profileTable, profile.toMap(), where: 'name = ?', whereArgs: [profile.name],   // selection arguments
+      _profileTable, profile.toMap(), where: 'id = ?', whereArgs: [profile.id],
     );
   }
 
-  Future<ProfileEntry?> forgetPassword(String name,String hint , String answer) async {
-    final db = await database;
-    final maps = await db.query( _profileTable,
-      columns: ["id", "name", "password", "hint", "answer"],
-      where: "name = ? AND hint = ? AND answer = ?",
-      whereArgs: [name, hint, answer],
-    );
-    if(maps.isNotEmpty) {
-      return ProfileEntry.fromMap(maps.first);
-    } else {
-      return null;
-    }
-  }
 
 }

@@ -4,7 +4,7 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 
 > [!WARNING]
 > **Early development: be careful with real passwords.**
-> Vaults created from now on are **encrypted with SQLCipher**, and the passcode and recovery answer are never stored. A vault created by an earlier version stays in **plain text** until migration lands ([#42](https://github.com/kr-riteshsinha/password-store/issues/42)). Multi-device sync is on the roadmap below but not implemented, and none of this has had an independent security review.
+> The vault is **encrypted with SQLCipher**, and the passcode and recovery answer are never stored. Multi-device sync is on the roadmap below but not implemented, and none of this has had an independent security review. Treat it as early software: keep another copy of anything you cannot afford to lose.
 
 ---
 
@@ -86,7 +86,6 @@ These features are **planned, not yet built**. Contributions are welcome.
 
 - [x] Encryption at rest: the whole database, with SQLCipher and a key derived from the passcode
 - [x] The passcode and recovery answer are no longer stored (they wrap the database key instead)
-- [ ] Migrate vaults created before encryption ([#42](https://github.com/kr-riteshsinha/password-store/issues/42))
 - [ ] Auto-lock and session timeout
 - [ ] TOTP code generation from the stored secret
 - [ ] Password generator and strength indicator

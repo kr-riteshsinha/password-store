@@ -77,11 +77,9 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
         return;
       }
 
-      // An encrypted vault has no stored passcode: the right one unwraps the
-      // database key, a wrong one fails to.
-      final unlocked = state == VaultState.encrypted
-          ? await loginProvider.unlockWithPasscodeAndOpen(entered)
-          : await loginProvider.unlockLegacy(entered);
+      // The vault has no stored passcode: the right one unwraps the database
+      // key, a wrong one fails to.
+      final unlocked = await loginProvider.unlockWithPasscodeAndOpen(entered);
       if (!mounted) return;
 
       if (!unlocked) {
