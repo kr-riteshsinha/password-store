@@ -4,10 +4,16 @@ on:
   push:
     branches:
       - main
-  # So a change to this workflow can be checked before it reaches main.
+  # So changes that can only break a platform build are checked before they
+  # reach main: the workflow itself, the native projects and the dependencies.
   pull_request:
     paths:
       - .github/workflows/dart.yml
+      - android/**
+      - ios/**
+      - macos/**
+      - windows/**
+      - pubspec.yaml
   workflow_dispatch:
 
 jobs:

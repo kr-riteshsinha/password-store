@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "com.example.archinfo.archinfotech"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // sqflite_android and sqflite_sqlcipher both ask for this NDK; the
+    // version Flutter defaults to is older.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
