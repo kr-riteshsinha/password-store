@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/profile.dart';
 import '../provider/login_entry_provider.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
@@ -39,26 +38,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
     var currPassword = controllers['cur_pass']!.text;
     var newPassword = controllers['new_pass']!.text;
-    ProfileEntry? profile = await Provider.of<LoginEntryProvider>(
+    final changed = await Provider.of<LoginEntryProvider>(
       context,
       listen: false,
-    ).getProfile();
+    ).changePasscode(currPassword.trim(), newPassword.trim());
+    if (!mounted) return;
 
-    if (profile == null || profile.password.trim() != currPassword.trim()) {
+    if (!changed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Old Password does not match...')),
       );
       return;
     }
 
-    ProfileEntry newProfile = profile.copyWith(password: newPassword);
-
-    Provider.of<LoginEntryProvider>(
-      context,
-      listen: false,
-    ).updateProfile(newProfile);
-
-    // TODO: Replace with actual password change logic
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Password changed successfully')),
     );

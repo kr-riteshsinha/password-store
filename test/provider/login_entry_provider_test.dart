@@ -5,6 +5,10 @@ import 'package:archinfotech/provider/login_entry_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'dart:io';
+
+import 'package:archinfotech/crypto/vault_meta.dart';
+
 import '../helpers/test_database.dart';
 
 LoginEntry _entry(String id, {String title = 'GitHub'}) => LoginEntry(
@@ -28,14 +32,18 @@ void main() {
 
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    await initTestDatabase();
+    await initEncryptedTestDatabase();
   });
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await resetVault();
+    await DbHelper.instance.openLegacy();
     await clearTables();
     provider = LoginEntryProvider();
   });
+
+  tearDownAll(resetVault);
 
   group('entries', () {
     test('starts empty', () {
@@ -169,23 +177,48 @@ void main() {
   });
 
   group('first-run setup', () {
-    Future<ProfileEntry> create() => provider.createVault(
-          name: ' ritesh ',
-          passcode: '1234',
-          hintQuestion: ' Favorite color? ',
-          hintAnswer: ' Blue ',
-        );
+    Future<ProfileEntry> create() async {
+      // Setup creates the encrypted database itself, so nothing may be open.
+      await resetVault();
+      return provider.createVault(
+        name: ' ritesh ',
+        passcode: '1234',
+        hintQuestion: ' Favorite color? ',
+        hintAnswer: ' Blue ',
+      );
+    }
 
-    test('createVault saves the passcode, question and answer in their own columns', () async {
+    test('createVault stores the profile but never the passcode or answer', () async {
       final created = await create();
 
       final stored = await provider.getProfile();
       expect(stored?.toMap(), created.toMap());
       expect(stored?.name, 'ritesh');
-      expect(stored?.password, '1234');
       // ISSUES.md #14: the question used to be overwritten with the passcode.
       expect(stored?.hint, 'Favorite color?');
-      expect(stored?.answer, 'Blue');
+      // ISSUES.md #2 and #3: neither is stored anywhere any more.
+      expect(stored?.password, '');
+      expect(stored?.answer, '');
+    });
+
+    test('createVault writes the vault metadata next to the database', () async {
+      await create();
+
+      final store = VaultMetaStore(await DbHelper.instance.vaultDirectory());
+      final meta = await store.read();
+
+      expect(meta, isNotNull);
+      expect(meta!.hasRecovery, isTrue);
+      expect(meta.recoveryQuestion, 'Favorite color?');
+    });
+
+    test('the passcode opens the vault and a wrong one does not', () async {
+      await create();
+      await DbHelper.instance.close();
+
+      expect(await provider.unlockWithPasscodeAndOpen('9999'), isFalse);
+      expect(await provider.unlockWithPasscodeAndOpen('1234'), isTrue);
+      expect((await provider.getProfile())?.name, 'ritesh');
     });
 
     test('createVault gives the profile a UUID', () async {
@@ -197,67 +230,131 @@ void main() {
     test('createVault refuses to create a second vault', () async {
       await create();
 
-      await expectLater(create(), throwsStateError);
-      expect(await DbHelper.instance.fetchProfileEntries(), hasLength(1));
+      await expectLater(
+        provider.createVault(
+          name: 'someone',
+          passcode: '5678',
+          hintQuestion: 'q',
+          hintAnswer: 'a',
+        ),
+        throwsStateError,
+      );
+    });
+
+    test('vaultState does not create a database file', () async {
+      await resetVault();
+
+      expect(await provider.vaultState(), VaultState.none);
+
+      // Creating the file here would leave a plaintext database that
+      // SQLCipher cannot open, breaking setup on a fresh install.
+      expect(File(await DbHelper.instance.databaseFile()).existsSync(), isFalse);
+    });
+
+    test('setup works over an empty plaintext database from an older version', () async {
+      await resetVault();
+      await DbHelper.instance.openLegacy();
+      await DbHelper.instance.close();
+      expect(File(await DbHelper.instance.databaseFile()).existsSync(), isTrue);
+
+      await provider.createVault(
+        name: 'ritesh',
+        passcode: '1234',
+        hintQuestion: 'Favorite color?',
+        hintAnswer: 'Blue',
+      );
+
+      expect((await provider.getProfile())?.name, 'ritesh');
+    });
+
+    test('vaultState reports what is on the device', () async {
+      await resetVault();
+      expect(await provider.vaultState(), VaultState.none);
+
+      await create();
+      expect(await provider.vaultState(), VaultState.encrypted);
     });
   });
 
   group('recovery', () {
+    Future<void> createVault() async {
+      await resetVault();
+      await provider.createVault(
+        name: 'ritesh',
+        passcode: '1234',
+        hintQuestion: 'Favorite color?',
+        hintAnswer: 'Blue',
+      );
+      await DbHelper.instance.close();
+    }
+
     test('recoveryQuestion is null when there is no vault', () async {
+      await resetVault();
+
       expect(await provider.recoveryQuestion(), isNull);
     });
 
-    test('recoveryQuestion returns the stored question', () async {
-      await provider.addProfile(_profile);
+    test('recoveryQuestion comes from the metadata, before unlocking', () async {
+      await createVault();
 
       expect(await provider.recoveryQuestion(), 'Favorite color?');
+      expect(DbHelper.instance.isOpen, isFalse);
     });
 
-    test('recoveryQuestion never reveals a passcode stored as the hint (#14 legacy data)', () async {
-      await provider.addProfile(_profile.copyWith(hint: _profile.password));
+    test('the answer unlocks the vault, ignoring case and spaces', () async {
+      await createVault();
 
-      expect(await provider.recoveryQuestion(), isNull);
-    });
-
-    test('verifyRecoveryAnswer accepts the answer ignoring case and spaces', () async {
-      await provider.addProfile(_profile);
-
-      expect(await provider.verifyRecoveryAnswer('Blue'), isTrue);
       expect(await provider.verifyRecoveryAnswer('  bLUE '), isTrue);
+      expect((await provider.getProfile())?.name, 'ritesh');
     });
 
-    test('verifyRecoveryAnswer rejects a wrong or empty answer', () async {
-      await provider.addProfile(_profile);
+    test('a wrong or empty answer is refused', () async {
+      await createVault();
 
       expect(await provider.verifyRecoveryAnswer('Red'), isFalse);
-      expect(await provider.verifyRecoveryAnswer(''), isFalse);
       expect(await provider.verifyRecoveryAnswer('   '), isFalse);
     });
 
-    test('verifyRecoveryAnswer is false when there is no vault', () async {
-      expect(await provider.verifyRecoveryAnswer('Blue'), isFalse);
-    });
-
-    test('verifyRecoveryAnswer still works for #14 legacy data', () async {
-      await provider.addProfile(_profile.copyWith(hint: _profile.password));
-
-      expect(await provider.verifyRecoveryAnswer('blue'), isTrue);
-    });
-
-    test('resetPasscode replaces the passcode without needing the old one', () async {
-      await provider.addProfile(_profile);
+    test('resetPasscode swaps the passcode and keeps the entries', () async {
+      await createVault();
+      await provider.unlockWithPasscodeAndOpen('1234');
+      await provider.addLoginEntry(_entry('1'));
 
       expect(await provider.resetPasscode('9999'), isTrue);
+      await DbHelper.instance.close();
 
-      final stored = await provider.getProfile();
-      expect(stored?.password, '9999');
-      expect(stored?.hint, _profile.hint);
-      expect(stored?.answer, _profile.answer);
+      expect(await provider.unlockWithPasscodeAndOpen('1234'), isFalse);
+      expect(await provider.unlockWithPasscodeAndOpen('9999'), isTrue);
+      expect((await DbHelper.instance.fetchEntries()).single.id, '1');
     });
 
-    test('resetPasscode returns false when there is no vault', () async {
-      expect(await provider.resetPasscode('9999'), isFalse);
-      expect(await provider.getProfile(), isNull);
+    test('recovery still works after the passcode changes', () async {
+      await createVault();
+      await provider.unlockWithPasscodeAndOpen('1234');
+      await provider.resetPasscode('9999');
+      await DbHelper.instance.close();
+
+      expect(await provider.verifyRecoveryAnswer('Blue'), isTrue);
+    });
+
+    test('changePasscode needs the current passcode', () async {
+      await createVault();
+
+      expect(await provider.changePasscode('wrong', '9999'), isFalse);
+      expect(await provider.changePasscode('1234', '9999'), isTrue);
+      await DbHelper.instance.close();
+
+      expect(await provider.unlockWithPasscodeAndOpen('9999'), isTrue);
+    });
+
+    test('lock closes the vault', () async {
+      await createVault();
+      await provider.unlockWithPasscodeAndOpen('1234');
+
+      await provider.lock();
+
+      expect(DbHelper.instance.isOpen, isFalse);
+      expect(provider.entries, isEmpty);
     });
   });
 

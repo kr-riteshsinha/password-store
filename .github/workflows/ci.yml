@@ -16,7 +16,9 @@ jobs:
           flutter-version: '3.32.6'
           cache: true
       # sqflite_common_ffi needs the system SQLite library for the database tests.
-      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      # libsqlcipher-dev: the encrypted-vault tests open SQLCipher on the host,
+      # since the Flutter plugin has no host build.
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev libsqlcipher-dev
       - run: flutter pub get
       # For now only analyzer errors fail the build. The existing lint warnings are tracked in ISSUES.md.
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings

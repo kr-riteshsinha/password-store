@@ -3,8 +3,8 @@
 An open-source, cross-platform password manager built with Flutter. Like the **Passwords app on macOS**, it's a personal vault for a single user: one profile, unlocked with one passcode. The goal is one app to keep your logins safe, with multi-device support and strong encryption.
 
 > [!WARNING]
-> **Early development: do not store real passwords yet.**
-> The app does **not encrypt data yet**. Saved logins, the vault passcode and the recovery answer are stored as **plain text** in a local SQLite database. Encryption and multi-device sync are on the roadmap below but not implemented. Use it only with test data until encryption lands.
+> **Early development: be careful with real passwords.**
+> Vaults created from now on are **encrypted with SQLCipher**, and the passcode and recovery answer are never stored. A vault created by an earlier version stays in **plain text** until migration lands ([#42](https://github.com/kr-riteshsinha/password-store/issues/42)). Multi-device sync is on the roadmap below but not implemented, and none of this has had an independent security review.
 
 ---
 
@@ -31,6 +31,7 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 | Area | What it does |
 |------|--------------|
 | Single-user vault | One local profile protected by a passcode, like the macOS Passwords app. Set it up once on first launch. |
+| Encrypted at rest | The database is encrypted with SQLCipher. A random database key is sealed by an Argon2id key derived from your passcode, so the passcode itself is never stored and a wrong one simply fails to open the vault. |
 | Passcode login | Unlock the vault with your passcode alone. There is no username (show/hide passcode toggle). |
 | Passcode recovery | Forgot the passcode? Answer your recovery question and set a new one. |
 | Change passcode | Change your passcode from the settings drawer. |
@@ -38,7 +39,7 @@ An open-source, cross-platform password manager built with Flutter. Like the **P
 | Edit and delete | Tap an entry to edit it. Swipe left to delete it, with **Undo**. |
 | Search | Filter saved logins by title, username or website. |
 | Copy to clipboard | One-tap copy of a username or password. |
-| Offline and local | All data stays on the device in SQLite. There is no server and no account, and nothing is sent over the network. |
+| Offline and local | All data stays on the device in an encrypted SQLite file. There is no server and no account, and nothing is sent over the network. |
 
 ## Your storage, your control
 
@@ -83,8 +84,9 @@ Some things still to be designed before this can be built:
 
 These features are **planned, not yet built**. Contributions are welcome.
 
-- [ ] Encryption at rest for the whole database or each field (for example SQLCipher or AES-GCM with a key derived from the passcode)
-- [ ] Hashed passcodes and recovery answers instead of plain text
+- [x] Encryption at rest: the whole database, with SQLCipher and a key derived from the passcode
+- [x] The passcode and recovery answer are no longer stored (they wrap the database key instead)
+- [ ] Migrate vaults created before encryption ([#42](https://github.com/kr-riteshsinha/password-store/issues/42))
 - [ ] Auto-lock and session timeout
 - [ ] TOTP code generation from the stored secret
 - [ ] Password generator and strength indicator
