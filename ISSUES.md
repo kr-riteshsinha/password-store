@@ -42,7 +42,7 @@ Line numbers refer to commit `65a5a5a`.
 | 16 | ✅ | **Fixed:** a correct answer opens the new `ResetPasscodeScreen`, which sets a new passcode (with confirmation) without asking for the old one. Original report: **Recovery can't reset the passcode.** On success it opens `ChangePasswordScreen`, which asks for the *current* passcode and uses the `username` pref. | `forget_password.dart:31-35` |
 | 17 | ✅ | **Fixed:** the recovery screen shows the stored question and only asks for the answer. Original report: Recovery makes the user retype the hint question exactly, instead of showing the stored question. | `forget_password.dart:17,22` |
 | 18 | ✅ | **Fixed:** the login asks only for the passcode and checks the single vault profile. "Create Account" only appears when no profile exists, the user-switch dialog and `switchProfile` are gone, and `DbHelper.AddProfile` throws a `StateError` if a different profile already exists. Original report: **The app is single-profile by design** (like macOS Passwords), but "Create Account" is always available, a user-switch dialog appears when there are multiple profiles, and `switchProfile` / `_currentProfileName` are leftovers from multi-profile code. | `password_auth.dart:116-147,273-289`, `login_entry_provider.dart:84-91` |
-| 19 | 🟡 | `profile.name` isn't unique in the schema, yet profiles are looked up and updated by name. | `db_helper.dart:67-73,126` |
+| 19 | ✅ | **Fixed:** nothing looks a profile up by name any more. `fetchVaultProfile` reads the single row and `updateProfile` matches by `id`. Original report: `profile.name` isn't unique in the schema, yet profiles are looked up and updated by name. | `db_helper.dart:67-73,126` |
 | 20 | ✅ | **Fixed:** setup uses `createVault` (UUID id), awaits it, disposes every controller and says "Please enter an answer". Original report: The profile id is a timestamp rather than a UUID. `addProfile` isn't awaited before navigating away. `hintAnswerController` is never disposed. The answer validator says "Please enter a hint question". | `new_profile_screen.dart:24-29,34,50,171` |
 
 ## Vault entries
@@ -59,7 +59,7 @@ Line numbers refer to commit `65a5a5a`.
 
 | # | Sev | Issue | Location |
 |---|:---:|-------|----------|
-| 26 | 🟠 | `_onUpgrade` isn't version-aware. It creates `profile` whenever `oldVersion < newVersion`, so the next schema bump will fail with "table profile already exists". | `db_helper.dart:39-52` |
+| 26 | ✅ | **Fixed:** `_onUpgrade` has one branch per version (v1 creates the `profile` table, v3 rebuilds it without the dropped columns), so a bump no longer reruns earlier statements. Original report: `_onUpgrade` isn't version-aware. It creates `profile` whenever `oldVersion < newVersion`, so the next schema bump will fail with "table profile already exists". | `db_helper.dart:39-52` |
 | 27 | 🟠 | Windows and Linux never initialize `sqflite_common_ffi`, so the database can't open there. The web isn't supported by `sqflite`. | `lib/main.dart` |
 
 ## Build, CI and tests
