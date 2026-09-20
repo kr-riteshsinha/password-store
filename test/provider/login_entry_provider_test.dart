@@ -5,6 +5,8 @@ import 'package:archinfotech/provider/login_entry_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'dart:io';
+
 import 'package:archinfotech/crypto/vault_meta.dart';
 
 import '../helpers/test_database.dart';
@@ -237,6 +239,32 @@ void main() {
         ),
         throwsStateError,
       );
+    });
+
+    test('vaultState does not create a database file', () async {
+      await resetVault();
+
+      expect(await provider.vaultState(), VaultState.none);
+
+      // Creating the file here would leave a plaintext database that
+      // SQLCipher cannot open, breaking setup on a fresh install.
+      expect(File(await DbHelper.instance.databaseFile()).existsSync(), isFalse);
+    });
+
+    test('setup works over an empty plaintext database from an older version', () async {
+      await resetVault();
+      await DbHelper.instance.openLegacy();
+      await DbHelper.instance.close();
+      expect(File(await DbHelper.instance.databaseFile()).existsSync(), isTrue);
+
+      await provider.createVault(
+        name: 'ritesh',
+        passcode: '1234',
+        hintQuestion: 'Favorite color?',
+        hintAnswer: 'Blue',
+      );
+
+      expect((await provider.getProfile())?.name, 'ritesh');
     });
 
     test('vaultState reports what is on the device', () async {

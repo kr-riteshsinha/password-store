@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archinfotech/models/profile.dart';
@@ -40,11 +41,33 @@ class LoginEntryProvider with ChangeNotifier {
       _meta = meta;
       return VaultState.encrypted;
     }
+    // Opening the database would create the file, and SQLCipher cannot then
+    // create an encrypted vault over that plaintext file. So look first.
+    if (!File(await DbHelper.instance.databaseFile()).existsSync()) {
+      return VaultState.none;
+    }
+
     await DbHelper.instance.openLegacy();
     final hasProfile = await DbHelper.instance.fetchVaultProfile() != null;
     if (hasProfile) return VaultState.legacy;
     await DbHelper.instance.close();
     return VaultState.none;
+  }
+
+  /// Removes an empty plaintext database left behind by an earlier version,
+  /// so setup can create the encrypted vault in its place. A database with
+  /// anything in it is left alone: that is a legacy vault, and #42 migrates
+  /// it.
+  Future<void> _discardEmptyLegacyDatabase() async {
+    final file = File(await DbHelper.instance.databaseFile());
+    if (!file.existsSync()) return;
+
+    await DbHelper.instance.openLegacy();
+    final isEmpty = await DbHelper.instance.fetchVaultProfile() == null &&
+        (await DbHelper.instance.fetchEntries()).isEmpty;
+    await DbHelper.instance.close();
+
+    if (isEmpty) file.deleteSync();
   }
 
   /// The recovery question to show, or null when there is none.
@@ -175,6 +198,8 @@ class LoginEntryProvider with ChangeNotifier {
     if (await store.exists()) {
       throw StateError('A vault profile already exists');
     }
+
+    await _discardEmptyLegacyDatabase();
 
     final created = await createVaultKeys(
       passcode: passcode,
