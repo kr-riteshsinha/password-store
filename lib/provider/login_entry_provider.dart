@@ -16,10 +16,6 @@ enum VaultState {
 
   /// An encrypted vault, opened with the key sealed in `vault_meta.json`.
   encrypted,
-
-  /// A vault created before encryption, still in plain text. Read-only in the
-  /// sense that it is not created any more; migrating it is ISSUES.md #1.
-  legacy,
 }
 
 class LoginEntryProvider with ChangeNotifier {
@@ -34,54 +30,33 @@ class LoginEntryProvider with ChangeNotifier {
   Future<VaultMetaStore> _metaStore() async =>
       VaultMetaStore(await DbHelper.instance.vaultDirectory());
 
-  /// Which kind of vault exists on this device.
+  /// Whether a vault exists on this device. Without `vault_meta.json` there
+  /// is no key, so there is no vault, whatever files are lying around.
   Future<VaultState> vaultState() async {
     final meta = await (await _metaStore()).read();
-    if (meta != null) {
-      _meta = meta;
-      return VaultState.encrypted;
-    }
-    // Opening the database would create the file, and SQLCipher cannot then
-    // create an encrypted vault over that plaintext file. So look first.
-    if (!File(await DbHelper.instance.databaseFile()).existsSync()) {
-      return VaultState.none;
-    }
-
-    await DbHelper.instance.openLegacy();
-    final hasProfile = await DbHelper.instance.fetchVaultProfile() != null;
-    if (hasProfile) return VaultState.legacy;
-    await DbHelper.instance.close();
-    return VaultState.none;
+    if (meta == null) return VaultState.none;
+    _meta = meta;
+    return VaultState.encrypted;
   }
 
-  /// Removes an empty plaintext database left behind by an earlier version,
-  /// so setup can create the encrypted vault in its place. A database with
-  /// anything in it is left alone: that is a legacy vault, and #42 migrates
-  /// it.
-  Future<void> _discardEmptyLegacyDatabase() async {
+  /// Moves aside a database with no metadata beside it.
+  ///
+  /// SQLCipher cannot create an encrypted database over an existing file, and
+  /// such a file is unopenable anyway with no key. Renaming rather than
+  /// deleting keeps a plaintext vault from a pre-encryption build recoverable
+  /// by hand.
+  Future<void> _setAsideOrphanDatabase() async {
     final file = File(await DbHelper.instance.databaseFile());
     if (!file.existsSync()) return;
 
-    await DbHelper.instance.openLegacy();
-    final isEmpty = await DbHelper.instance.fetchVaultProfile() == null &&
-        (await DbHelper.instance.fetchEntries()).isEmpty;
-    await DbHelper.instance.close();
-
-    if (isEmpty) file.deleteSync();
+    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    file.renameSync('${file.path}.orphan-$stamp');
   }
 
   /// The recovery question to show, or null when there is none.
   Future<String?> recoveryQuestion() async {
     final meta = _meta ?? await (await _metaStore()).read();
-    if (meta != null) return meta.recoveryQuestion;
-
-    // Legacy vault: the question is in the (unencrypted) profile row. Never
-    // show a hint that is really the passcode (ISSUES.md #14).
-    if (!DbHelper.instance.isOpen) return null;
-    final profile = await getProfile();
-    if (profile == null) return null;
-    final hint = profile.hint.trim();
-    return hint.isEmpty || profile.hint == profile.password ? null : hint;
+    return meta?.recoveryQuestion;
   }
 
   /// Unlocks an encrypted vault and opens the database. False if the passcode
@@ -107,14 +82,6 @@ class LoginEntryProvider with ChangeNotifier {
     _databaseKey = key;
     await DbHelper.instance.openEncrypted(key);
     return true;
-  }
-
-  /// Opens a plaintext vault created before encryption and checks the
-  /// passcode the old way.
-  Future<bool> unlockLegacy(String passcode) async {
-    await DbHelper.instance.openLegacy();
-    final profile = await DbHelper.instance.fetchVaultProfile();
-    return profile != null && profile.password == passcode;
   }
 
   /// Closes the vault and forgets the key.
@@ -199,7 +166,7 @@ class LoginEntryProvider with ChangeNotifier {
       throw StateError('A vault profile already exists');
     }
 
-    await _discardEmptyLegacyDatabase();
+    await _setAsideOrphanDatabase();
 
     final created = await createVaultKeys(
       passcode: passcode,
@@ -211,68 +178,35 @@ class LoginEntryProvider with ChangeNotifier {
     _meta = created.meta;
     _databaseKey = created.databaseKey;
 
-    final profile = ProfileEntry(
-      id: UUIDv4().toString(),
-      name: name.trim(),
-      // The passcode and answer live nowhere; these columns stay empty until
-      // the schema drops them (ISSUES.md #1 follow-up).
-      password: '',
-      hint: hintQuestion.trim(),
-      answer: '',
-    );
+    final profile = ProfileEntry(id: UUIDv4().toString(), name: name.trim());
     await DbHelper.instance.AddProfile(profile);
     return profile;
   }
 
-  /// Whether [answer] matches the recovery answer. For an encrypted vault
-  /// this unlocks it, since the answer wraps the same database key.
-  Future<bool> verifyRecoveryAnswer(String answer) async {
-    if (await (await _metaStore()).exists()) {
-      return unlockWithAnswerAndOpen(answer);
-    }
-
-    // Legacy vault: compare the stored answer.
-    if (!DbHelper.instance.isOpen) return false;
-    final profile = await getProfile();
-    if (profile == null) return false;
-    final entered = answer.trim().toLowerCase();
-    return entered.isNotEmpty && entered == profile.answer.trim().toLowerCase();
-  }
+  /// Whether [answer] matches the recovery answer. It unlocks the vault,
+  /// since the answer wraps the same database key.
+  Future<bool> verifyRecoveryAnswer(String answer) =>
+      unlockWithAnswerAndOpen(answer);
 
   /// Sets a new passcode after a successful recovery, or when changing it.
   ///
-  /// For an encrypted vault this reseals the same database key, so the vault
-  /// itself is untouched however large it is. Returns false if the vault is
-  /// not unlocked.
+  /// This reseals the same database key, so the vault itself is untouched
+  /// however large it is. Returns false if the vault is not unlocked.
   Future<bool> resetPasscode(String newPasscode) async {
     final meta = _meta;
     final key = _databaseKey;
-    if (meta != null && key != null) {
-      final updated = await rewrapWithPasscode(meta, key, newPasscode);
-      await (await _metaStore()).write(updated);
-      _meta = updated;
-      return true;
-    }
+    if (meta == null || key == null) return false;
 
-    final profile = await getProfile();
-    if (profile == null) return false;
-    await DbHelper.instance.updateProfile(profile.copyWith(password: newPasscode));
+    final updated = await rewrapWithPasscode(meta, key, newPasscode);
+    await (await _metaStore()).write(updated);
+    _meta = updated;
     return true;
   }
 
   /// Changes the passcode, checking the current one first.
   Future<bool> changePasscode(String currentPasscode, String newPasscode) async {
-    if (await (await _metaStore()).exists()) {
-      if (!await unlockWithPasscodeAndOpen(currentPasscode)) return false;
-      return resetPasscode(newPasscode);
-    }
-
-    final profile = await getProfile();
-    if (profile == null || profile.password.trim() != currentPasscode.trim()) {
-      return false;
-    }
-    await DbHelper.instance.updateProfile(profile.copyWith(password: newPasscode));
-    return true;
+    if (!await unlockWithPasscodeAndOpen(currentPasscode)) return false;
+    return resetPasscode(newPasscode);
   }
 
 

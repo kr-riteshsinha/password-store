@@ -15,18 +15,12 @@ LoginEntry _entry(String id, {String title = 'GitHub', String? totpSecret}) =>
       totpSecret: totpSecret,
     );
 
-final _profile = ProfileEntry(
-  id: 'p1',
-  name: 'ritesh',
-  password: '1234',
-  hint: 'Favorite color?',
-  answer: 'Blue',
-);
+final _profile = ProfileEntry(id: 'p1', name: 'ritesh');
 
 void main() {
   final db = DbHelper.instance;
 
-  setUpAll(initTestDatabase);
+  setUpAll(initEncryptedTestDatabase);
   setUp(clearTables);
 
   group('login entries', () {
@@ -86,28 +80,25 @@ void main() {
   });
 
   group('profile', () {
-    test('fetchProfile returns null when no profile exists', () async {
-      expect(await db.fetchProfile('ritesh'), isNull);
-    });
-
-    test('AddProfile then fetchProfile by name returns the same data', () async {
-      await db.AddProfile(_profile);
-
-      final found = await db.fetchProfile('ritesh');
-      expect(found?.toMap(), _profile.toMap());
-    });
-
     test('fetchVaultProfile returns null when no profile exists', () async {
       expect(await db.fetchVaultProfile(), isNull);
     });
 
-    test('fetchVaultProfile returns the saved profile', () async {
+    test('AddProfile then fetchVaultProfile returns the same data', () async {
       await db.AddProfile(_profile);
 
       expect((await db.fetchVaultProfile())?.toMap(), _profile.toMap());
     });
 
-    test('fetchVaultProfile returns the oldest profile when an old install has several', () async {
+    test('the profile stores only an id and a name', () async {
+      await db.AddProfile(_profile);
+
+      final columns = await (await db.database).rawQuery('PRAGMA table_info(profile)');
+
+      expect(columns.map((c) => c['name']), ['id', 'name']);
+    });
+
+    test('fetchVaultProfile returns the oldest profile when several exist', () async {
       final raw = await db.database;
       await raw.insert('profile', _profile.toMap());
       await raw.insert('profile', _profile.copyWith(id: 'p2', name: 'someone').toMap());
@@ -118,9 +109,9 @@ void main() {
     test('AddProfile with the same id replaces the profile', () async {
       await db.AddProfile(_profile);
 
-      await db.AddProfile(_profile.copyWith(password: '5678'));
+      await db.AddProfile(_profile.copyWith(name: 'someone else'));
 
-      expect((await db.fetchProfileEntries()).single.password, '5678');
+      expect((await db.fetchProfileEntries()).single.name, 'someone else');
     });
 
     test('fetchProfileEntries lists the saved profile', () async {
@@ -129,57 +120,33 @@ void main() {
       expect((await db.fetchProfileEntries()).map((p) => p.name), ['ritesh']);
     });
 
-    test('updateProfile changes the passcode, matched by name', () async {
-      await db.AddProfile(_profile);
-
-      final updated = await db.updateProfile(_profile.copyWith(password: '5678'));
-
-      expect(updated, 1);
-      expect((await db.fetchProfile('ritesh'))?.password, '5678');
-    });
-
-    test('updateProfile for an unknown name updates nothing', () async {
+    test('updateProfile changes the name, matched by id', () async {
       await db.AddProfile(_profile);
 
       final updated = await db.updateProfile(_profile.copyWith(name: 'someone'));
 
+      expect(updated, 1);
+      expect((await db.fetchVaultProfile())?.name, 'someone');
+    });
+
+    test('updateProfile for an unknown id updates nothing', () async {
+      await db.AddProfile(_profile);
+
+      final updated = await db.updateProfile(_profile.copyWith(id: 'nope'));
+
       expect(updated, 0);
-      expect((await db.fetchProfile('ritesh'))?.password, '1234');
+      expect((await db.fetchVaultProfile())?.name, 'ritesh');
     });
 
-    test('forgetPassword returns the profile when name, hint and answer match', () async {
+    test('only one profile can be stored (single-profile design)', () async {
       await db.AddProfile(_profile);
+      try {
+        await db.AddProfile(_profile.copyWith(id: 'p2', name: 'someone'));
+      } catch (_) {
+        // Rejecting the second profile with an error is also acceptable.
+      }
 
-      final found = await db.forgetPassword('ritesh', 'Favorite color?', 'Blue');
-      expect(found?.id, 'p1');
+      expect(await db.fetchProfileEntries(), hasLength(1));
     });
-
-    test('forgetPassword returns null when the answer is wrong', () async {
-      await db.AddProfile(_profile);
-
-      expect(await db.forgetPassword('ritesh', 'Favorite color?', 'Red'), isNull);
-    });
-
-    test('forgetPassword comparison is case-sensitive', () async {
-      // The recovery screen lowercases its input (ISSUES.md #15). This is why
-      // mixed-case answers never match.
-      await db.AddProfile(_profile);
-
-      expect(await db.forgetPassword('ritesh', 'favorite color?', 'blue'), isNull);
-    });
-
-    test(
-      'only one profile can be stored (single-profile design)',
-      () async {
-        await db.AddProfile(_profile);
-        try {
-          await db.AddProfile(_profile.copyWith(id: 'p2', name: 'someone'));
-        } catch (_) {
-          // Rejecting the second profile with an error is also acceptable.
-        }
-
-        expect(await db.fetchProfileEntries(), hasLength(1));
-      },
-    );
   });
 }

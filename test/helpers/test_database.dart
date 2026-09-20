@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archinfotech/crypto/vault_meta.dart';
 import 'package:archinfotech/provider/db_helper.dart';
@@ -113,12 +114,16 @@ Future<void> resetVault() async {
   }
 }
 
+/// A fixed key for tests that only need an open vault, not a real unlock.
+final testDatabaseKey = Uint8List.fromList(List.generate(32, (i) => i + 1));
+
+/// Opens an encrypted vault with [testDatabaseKey], creating it if needed.
+Future<void> openTestVault() => DbHelper.instance.openEncrypted(testDatabaseKey);
+
 /// Deletes every row so each test starts from an empty vault. Opens the
-/// unencrypted vault first if nothing is open yet.
+/// vault first if nothing is open yet.
 Future<void> clearTables() async {
-  if (!DbHelper.instance.isOpen) {
-    await DbHelper.instance.openLegacy();
-  }
+  if (!DbHelper.instance.isOpen) await openTestVault();
   final db = await DbHelper.instance.database;
   await db.delete('login_entries');
   await db.delete('profile');

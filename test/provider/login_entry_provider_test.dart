@@ -19,13 +19,7 @@ LoginEntry _entry(String id, {String title = 'GitHub'}) => LoginEntry(
       website: 'https://github.com',
     );
 
-final _profile = ProfileEntry(
-  id: 'p1',
-  name: 'ritesh',
-  password: '1234',
-  hint: 'Favorite color?',
-  answer: 'Blue',
-);
+final _profile = ProfileEntry(id: 'p1', name: 'ritesh');
 
 void main() {
   late LoginEntryProvider provider;
@@ -38,7 +32,6 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await resetVault();
-    await DbHelper.instance.openLegacy();
     await clearTables();
     provider = LoginEntryProvider();
   });
@@ -166,12 +159,12 @@ void main() {
       expect((await provider.getProfile())?.id, 'p1');
     });
 
-    test('updateProfile changes the stored passcode', () async {
+    test('updateProfile changes the stored name', () async {
       await provider.addProfile(_profile);
 
-      await provider.updateProfile(_profile.copyWith(password: '5678'));
+      await provider.updateProfile(_profile.copyWith(name: 'someone'));
 
-      expect((await provider.getProfile())?.password, '5678');
+      expect((await provider.getProfile())?.name, 'someone');
     });
 
   });
@@ -194,11 +187,8 @@ void main() {
       final stored = await provider.getProfile();
       expect(stored?.toMap(), created.toMap());
       expect(stored?.name, 'ritesh');
-      // ISSUES.md #14: the question used to be overwritten with the passcode.
-      expect(stored?.hint, 'Favorite color?');
-      // ISSUES.md #2 and #3: neither is stored anywhere any more.
-      expect(stored?.password, '');
-      expect(stored?.answer, '');
+      // ISSUES.md #2 and #3: the row holds nothing but an id and a name.
+      expect(stored?.toMap().keys, ['id', 'name']);
     });
 
     test('createVault writes the vault metadata next to the database', () async {
@@ -251,11 +241,12 @@ void main() {
       expect(File(await DbHelper.instance.databaseFile()).existsSync(), isFalse);
     });
 
-    test('setup works over an empty plaintext database from an older version', () async {
+    test('setup moves aside a database left without its metadata', () async {
       await resetVault();
-      await DbHelper.instance.openLegacy();
+      await openTestVault();
       await DbHelper.instance.close();
-      expect(File(await DbHelper.instance.databaseFile()).existsSync(), isTrue);
+      final path = await DbHelper.instance.databaseFile();
+      expect(File(path).existsSync(), isTrue);
 
       await provider.createVault(
         name: 'ritesh',
@@ -265,6 +256,11 @@ void main() {
       );
 
       expect((await provider.getProfile())?.name, 'ritesh');
+      // The old file is kept, renamed, rather than deleted.
+      final orphans = Directory(await DbHelper.instance.vaultDirectory())
+          .listSync()
+          .where((e) => e.path.contains('.orphan-'));
+      expect(orphans, hasLength(1));
     });
 
     test('vaultState reports what is on the device', () async {
