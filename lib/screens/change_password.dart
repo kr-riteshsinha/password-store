@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/profile.dart';
 import '../provider/login_entry_provider.dart';
@@ -13,7 +12,6 @@ class ChangePasswordScreen extends StatefulWidget {
 }
 
 class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
-  String username = 'Guest';
   late Map<String, TextEditingController> controllers;
   final Map<String, bool> _obscureFields = {'cur_pass': true, 'new_pass': true};
 
@@ -22,17 +20,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     {'label': 'New Password', 'key': 'new_pass', 'obscure': true},
   ];
 
-  Future<void> loadLoginDetails() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      username = prefs.getString('username') ?? 'Guest';
-    });
-  }
-
   @override
   void initState() {
     super.initState();
-    loadLoginDetails();
     controllers = {
       'cur_pass': TextEditingController(),
       'new_pass': TextEditingController(),
@@ -52,7 +42,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     ProfileEntry? profile = await Provider.of<LoginEntryProvider>(
       context,
       listen: false,
-    ).findProfileByName(username);
+    ).getProfile();
 
     if (profile == null || profile.password.trim() != currPassword.trim()) {
       ScaffoldMessenger.of(context).showSnackBar(

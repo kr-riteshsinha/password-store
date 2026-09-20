@@ -98,11 +98,23 @@ class DbHelper {
     await db.delete(_tableName, where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Saves the vault's profile. The app is single-profile, so this throws a
+  /// [StateError] if a different profile already exists.
   Future<void> AddProfile(ProfileEntry entry) async {
     final db = await database;
+    final others = await db.query(_profileTable, where: 'id != ?', whereArgs: [entry.id], limit: 1);
+    if (others.isNotEmpty) {
+      throw StateError('A vault profile already exists');
+    }
     await db.insert(_profileTable, entry.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    final entries = await fetchEntries();
+  }
 
+  /// The vault's single profile, or null before one has been created. Older
+  /// installs may hold more than one profile; the oldest one wins.
+  Future<ProfileEntry?> fetchVaultProfile() async {
+    final db = await database;
+    final maps = await db.query(_profileTable, orderBy: 'rowid', limit: 1);
+    return maps.isEmpty ? null : ProfileEntry.fromMap(maps.first);
   }
 
   Future<ProfileEntry?> fetchProfile(String name) async {

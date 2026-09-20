@@ -25,25 +25,25 @@ Line numbers refer to commit `65a5a5a`.
 
 | # | Sev | Issue | Location |
 |---|:---:|-------|----------|
-| 7 | 🔴 | **Successful login saves a `null` username.** `saveLoginDetails(entry?.name)` is called with `entry`, which is always `null`, so `name!` throws (as an unawaited async error). The `username` pref is never written, the drawer shows "Guest", and changing the passcode breaks (#11). | `screens/password_auth.dart:84,102`, `provider/login_entry_provider.dart:80-83` |
-| 8 | 🟠 | A wrong passcode for an existing user shows **no message at all**. The `else` branch only runs when no profile is found. | `password_auth.dart:97-112` |
-| 9 | 🟡 | Empty username or passcode shows a snackbar, but the code still runs the lookup (missing `return`). | `password_auth.dart:86-91` |
+| 7 | ✅ | **Fixed:** the login now passes `profileEntry.name` and awaits the save, and `saveLoginDetails` takes a non-nullable `String`. Original report: **Successful login saves a `null` username.** `saveLoginDetails(entry?.name)` is called with `entry`, which is always `null`, so `name!` throws (as an unawaited async error). The `username` pref is never written, the drawer shows "Guest", and changing the passcode breaks (#11). | `screens/password_auth.dart:84,102`, `provider/login_entry_provider.dart:80-83` |
+| 8 | ✅ | **Fixed:** the login now shows "Invalid passcode" whenever the passcode is wrong. Original report: A wrong passcode for an existing user shows **no message at all**. The `else` branch only runs when no profile is found. | `password_auth.dart:97-112` |
+| 9 | ✅ | **Fixed:** the login returns after the empty-passcode message. The username field is gone. Original report: Empty username or passcode shows a snackbar, but the code still runs the lookup (missing `return`). | `password_auth.dart:86-91` |
 | 10 | 🟡 | Login uses `Navigator.push`, so pressing Back from the vault goes back to the login screen. | `password_auth.dart:105` |
-| 11 | 🟠 | **Change passcode always fails.** It looks up the profile using the `username` pref, which is never set (#7), so it always shows "Old Password does not match". | `screens/change_password.dart:28,52-62` |
-| 12 | 🟡 | The 15-minute "skip login" and the username prefill read the `lastAuthTime` and `lastLoggedInUser` prefs, which nothing ever writes. | `password_auth.dart:36-66` |
-| 13 | ⚪ | `_allProfiles == null` checks a non-nullable list, so it's dead code. `_loadLastLoggedInUser` also races `_loadAllProfiles`. | `password_auth.dart:43-46` |
+| 11 | ✅ | **Fixed by the #7 fix**, which saves the `username` pref on login. Original report: **Change passcode always fails.** It looks up the profile using the `username` pref, which is never set (#7), so it always shows "Old Password does not match". | `screens/change_password.dart:28,52-62` |
+| 12 | 🟡 | The 15-minute "skip login" reads the `lastAuthTime` pref, which nothing ever writes. (The `lastLoggedInUser` prefill went away with the username field.) | `password_auth.dart:36-66` |
+| 13 | ✅ | **Fixed:** the username prefill and profile loading were removed with the username field. Original report: `_allProfiles == null` checks a non-nullable list, so it's dead code. `_loadLastLoggedInUser` also races `_loadAllProfiles`. | `password_auth.dart:43-46` |
 
 ## Profile and recovery
 
 | # | Sev | Issue | Location |
 |---|:---:|-------|----------|
-| 14 | 🔴 | **Creating a profile stores the passcode in the `hint` column** (`hint: passwordController.text`), so the hint question is lost. | `screens/new_profile_screen.dart:37` |
-| 15 | 🟠 | Recovery lowercases the name, question and answer, but stored values keep their original case, so mixed-case values never match. The database comparison is case-sensitive. | `screens/forget_password.dart:21-23` |
-| 16 | 🟠 | **Recovery can't reset the passcode.** On success it opens `ChangePasswordScreen`, which asks for the *current* passcode and uses the `username` pref. | `forget_password.dart:31-35` |
-| 17 | 🟡 | Recovery makes the user retype the hint question exactly, instead of showing the stored question. | `forget_password.dart:17,22` |
-| 18 | 🟠 | **The app is single-profile by design** (like macOS Passwords), but "Create Account" is always available, a user-switch dialog appears when there are multiple profiles, and `switchProfile` / `_currentProfileName` are leftovers from multi-profile code. | `password_auth.dart:116-147,273-289`, `login_entry_provider.dart:84-91` |
+| 14 | ✅ | **Fixed:** setup now goes through `LoginEntryProvider.createVault`, which saves the question in `hint`. For vaults created before the fix, `recoveryQuestion()` never shows a `hint` that equals the passcode. Original report: **Creating a profile stores the passcode in the `hint` column** (`hint: passwordController.text`), so the hint question is lost. | `screens/new_profile_screen.dart:37` |
+| 15 | ✅ | **Fixed:** `verifyRecoveryAnswer` compares the answer in Dart, ignoring case and surrounding spaces, and recovery no longer asks for the name or question. Original report: Recovery lowercases the name, question and answer, but stored values keep their original case, so mixed-case values never match. The database comparison is case-sensitive. | `screens/forget_password.dart:21-23` |
+| 16 | ✅ | **Fixed:** a correct answer opens the new `ResetPasscodeScreen`, which sets a new passcode (with confirmation) without asking for the old one. Original report: **Recovery can't reset the passcode.** On success it opens `ChangePasswordScreen`, which asks for the *current* passcode and uses the `username` pref. | `forget_password.dart:31-35` |
+| 17 | ✅ | **Fixed:** the recovery screen shows the stored question and only asks for the answer. Original report: Recovery makes the user retype the hint question exactly, instead of showing the stored question. | `forget_password.dart:17,22` |
+| 18 | ✅ | **Fixed:** the login asks only for the passcode and checks the single vault profile. "Create Account" only appears when no profile exists, the user-switch dialog and `switchProfile` are gone, and `DbHelper.AddProfile` throws a `StateError` if a different profile already exists. Original report: **The app is single-profile by design** (like macOS Passwords), but "Create Account" is always available, a user-switch dialog appears when there are multiple profiles, and `switchProfile` / `_currentProfileName` are leftovers from multi-profile code. | `password_auth.dart:116-147,273-289`, `login_entry_provider.dart:84-91` |
 | 19 | 🟡 | `profile.name` isn't unique in the schema, yet profiles are looked up and updated by name. | `db_helper.dart:67-73,126` |
-| 20 | ⚪ | The profile id is a timestamp rather than a UUID. `addProfile` isn't awaited before navigating away. `hintAnswerController` is never disposed. The answer validator says "Please enter a hint question". | `new_profile_screen.dart:24-29,34,50,171` |
+| 20 | ✅ | **Fixed:** setup uses `createVault` (UUID id), awaits it, disposes every controller and says "Please enter an answer". Original report: The profile id is a timestamp rather than a UUID. `addProfile` isn't awaited before navigating away. `hintAnswerController` is never disposed. The answer validator says "Please enter a hint question". | `new_profile_screen.dart:24-29,34,50,171` |
 
 ## Vault entries
 

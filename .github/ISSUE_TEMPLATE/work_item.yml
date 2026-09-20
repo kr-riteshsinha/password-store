@@ -1,0 +1,71 @@
+name: Work item
+description: A planned piece of work, such as a change that groups several issues or a refactor
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to plan or track work. Report a problem with the **Bug report** template and suggest an idea with the **Feature request** template.
+        Password Store is a **single-user vault** (like the macOS Passwords app), so multi-profile work is out of scope.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this is done, and why does it matter?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Login and passcode
+        - Setup and recovery
+        - Vault entries
+        - Storage and encryption
+        - UI
+        - Build and CI
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: The changes to make, as a task list.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Related work that this item deliberately leaves for later.
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues
+      description: Issues this work fixes or depends on, e.g. "Fixes #14", "Depends on #2".
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How a reviewer can tell the work is done.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing
+      description: Unit tests to add or update, and anything to check by hand in the app.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security-sensitive changes
+      description: Work on storage, encryption, the passcode or recovery must explain the threat, the libraries and algorithms, and how existing data is migrated (see CONTRIBUTING.md).
+      options:
+        - label: This touches storage, encryption, the passcode or recovery
