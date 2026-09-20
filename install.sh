@@ -271,19 +271,35 @@ if [ "$OS" = "macos" ]; then
     note "Install Xcode from the App Store, then run:"
     note "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
   fi
-else
-  # sqflite_common_ffi runs the database tests against the system SQLite.
-  if [ -f /usr/include/sqlite3.h ] || ldconfig -p 2>/dev/null | grep -q libsqlite3; then
-    ok "SQLite development library"
+
+  # The encrypted-vault tests open SQLCipher on the host, because the Flutter
+  # plugin has no host build. The app itself doesn't need this.
+  if [ -f /opt/homebrew/opt/sqlcipher/lib/libsqlcipher.dylib ] ||
+     [ -f /usr/local/opt/sqlcipher/lib/libsqlcipher.dylib ]; then
+    ok "SQLCipher"
   else
-    fail "libsqlite3-dev is missing (the database tests need it)"
-    if have apt-get && [ "$CHECK_ONLY" -eq 0 ] && confirm "Install libsqlite3-dev and the Linux desktop build deps with sudo?"; then
+    fail "SQLCipher is missing (the encrypted-vault tests need it)"
+    if have brew && [ "$CHECK_ONLY" -eq 0 ] && confirm "Install SQLCipher with Homebrew?"; then
+      brew install sqlcipher
+    else
+      note "Install it with: brew install sqlcipher"
+    fi
+  fi
+else
+  # sqflite_common_ffi runs the database tests against the system SQLite, and
+  # the encrypted-vault tests against the system SQLCipher.
+  if { [ -f /usr/include/sqlite3.h ] || ldconfig -p 2>/dev/null | grep -q libsqlite3; } &&
+     ldconfig -p 2>/dev/null | grep -q libsqlcipher; then
+    ok "SQLite and SQLCipher libraries"
+  else
+    fail "libsqlite3-dev / libsqlcipher0 are missing (the database tests need them)"
+    if have apt-get && [ "$CHECK_ONLY" -eq 0 ] && confirm "Install libsqlite3-dev, libsqlcipher0 and the Linux desktop build deps with sudo?"; then
       sudo apt-get update
-      sudo apt-get install -y libsqlite3-dev clang cmake ninja-build pkg-config libgtk-3-dev
+      sudo apt-get install -y libsqlite3-dev libsqlcipher0 clang cmake ninja-build pkg-config libgtk-3-dev
       ok "Installed Linux build dependencies"
     else
       note "Install them with:"
-      note "  sudo apt-get install -y libsqlite3-dev clang cmake ninja-build pkg-config libgtk-3-dev"
+      note "  sudo apt-get install -y libsqlite3-dev libsqlcipher0 clang cmake ninja-build pkg-config libgtk-3-dev"
     fi
   fi
 fi

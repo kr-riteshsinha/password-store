@@ -20,8 +20,11 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
   final passcodeController = TextEditingController();
   bool _obscurePassword = true;
 
-  /// Whether a vault profile exists. Null until the database has been checked.
-  bool? _hasProfile;
+  /// What kind of vault is on this device. Null until it has been checked.
+  VaultState? _vaultState;
+
+  bool? get _hasProfile =>
+      _vaultState == null ? null : _vaultState != VaultState.none;
 
   @override
   void initState() {
@@ -31,10 +34,10 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final profile = await context.read<LoginEntryProvider>().getProfile();
+    final state = await context.read<LoginEntryProvider>().vaultState();
     if (!mounted) return;
     setState(() {
-      _hasProfile = profile != null;
+      _vaultState = state;
     });
   }
 
@@ -68,19 +71,26 @@ class _PasscodeLoginScreenState extends State<PasscodeLoginScreen> {
         return;
       }
 
-      final profile = await loginProvider.getProfile();
-      if (!mounted) return;
-
-      if (profile == null) {
+      final state = _vaultState ?? await loginProvider.vaultState();
+      if (state == VaultState.none) {
         showSnackbar("No vault yet. Create one first.");
         return;
       }
-      if (profile.password != entered) {
+
+      // An encrypted vault has no stored passcode: the right one unwraps the
+      // database key, a wrong one fails to.
+      final unlocked = state == VaultState.encrypted
+          ? await loginProvider.unlockWithPasscodeAndOpen(entered)
+          : await loginProvider.unlockLegacy(entered);
+      if (!mounted) return;
+
+      if (!unlocked) {
         showSnackbar("Invalid passcode");
         return;
       }
 
-      await loginProvider.saveLoginDetails(profile.name);
+      final profile = await loginProvider.getProfile();
+      await loginProvider.saveLoginDetails(profile?.name ?? '');
       if (!mounted) return;
 
       showSnackbar("Login successful");

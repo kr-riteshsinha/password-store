@@ -1,8 +1,20 @@
+import 'dart:typed_data';
+
 import 'package:archinfotech/models/profile.dart';
-import 'package:flutter/material.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
+
+import '../crypto/vault_keys.dart';
 import '../models/login_entry.dart';
+
+/// Opens an encrypted database. Production uses SQLCipher through its plugin;
+/// tests swap in an FFI implementation, since the plugin has no host build.
+typedef EncryptedDatabaseOpener = Future<Database> Function(
+  String path,
+  String passphrase,
+  OpenDatabaseOptions options,
+);
 
 class DbHelper {
   static const _dbName = 'logins.db';
@@ -15,25 +27,70 @@ class DbHelper {
 
   static Database? _db;
 
+  /// Set by tests to open encrypted databases without the platform plugin.
+  static EncryptedDatabaseOpener? encryptedOpenerOverride;
+
+  /// Whether the vault is currently unlocked.
+  bool get isOpen => _db != null;
+
+  /// The open database. Callers must unlock the vault first, with
+  /// [openEncrypted] or [openLegacy].
   Future<Database> get database async {
-    if (_db != null) return _db!;
-    _db = await _initDb();
+    final db = _db;
+    if (db == null) {
+      throw StateError('The vault is locked. Unlock it before using it.');
+    }
+    return db;
+  }
+
+  Future<String> databaseFile() async => join(await getDatabasesPath(), _dbName);
+
+  /// Directory holding the database, where `vault_meta.json` also lives.
+  Future<String> vaultDirectory() async => getDatabasesPath();
+
+  /// Opens the SQLCipher-encrypted vault with [databaseKey]. The key comes
+  /// from unwrapping it with the passcode, so a wrong passcode never gets
+  /// this far.
+  Future<Database> openEncrypted(Uint8List databaseKey) async {
+    await close();
+    final path = await databaseFile();
+    final passphrase = VaultKeys.toPassphrase(databaseKey);
+    final options = OpenDatabaseOptions(
+      version: _dbVersion,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+
+    final opener = encryptedOpenerOverride;
+    _db = opener != null
+        ? await opener(path, passphrase, options)
+        : await sqlcipher.openDatabase(
+            path,
+            password: passphrase,
+            version: options.version,
+            onCreate: options.onCreate,
+            onUpgrade: options.onUpgrade,
+          );
     return _db!;
   }
 
-  Future<Database> _initDb() async {
-    final dbPath = await getDatabasesPath();
-    debugPrint('Database location: $dbPath');
-
-    final path = join(dbPath, _dbName);
-    debugPrint('final path : $dbPath');
-
-    return await openDatabase(
-      path,
+  /// Opens an unencrypted vault created before encryption existed.
+  /// Removed once migration lands (ISSUES.md #1).
+  Future<Database> openLegacy() async {
+    await close();
+    _db = await openDatabase(
+      await databaseFile(),
       version: _dbVersion,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade,  // Added for future schema changes
+      onUpgrade: _onUpgrade,
     );
+    return _db!;
+  }
+
+  /// Locks the vault by closing the database and dropping the key with it.
+  Future<void> close() async {
+    await _db?.close();
+    _db = null;
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {

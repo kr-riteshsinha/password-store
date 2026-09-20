@@ -36,7 +36,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
 
     // Single-profile vault: only one profile can ever be created.
     final loginProvider = Provider.of<LoginEntryProvider>(context, listen: false);
-    if (await loginProvider.getProfile() != null) {
+    if (await loginProvider.vaultState() != VaultState.none) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('A vault already exists on this device')),

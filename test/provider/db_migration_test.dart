@@ -41,6 +41,9 @@ void main() {
   });
 
   test('upgrading from v1 keeps saved logins and adds the profile table', () async {
+    // A v1 vault predates encryption, so it opens through the legacy path.
+    await DbHelper.instance.openLegacy();
+
     final entries = await DbHelper.instance.fetchEntries();
     expect(entries.map((e) => e.title), ['GitHub']);
 
