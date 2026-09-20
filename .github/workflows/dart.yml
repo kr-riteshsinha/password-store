@@ -4,12 +4,17 @@ on:
   push:
     branches:
       - main
+  # So a change to this workflow can be checked before it reaches main.
+  pull_request:
+    paths:
+      - .github/workflows/dart.yml
+  workflow_dispatch:
 
 jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.32.6'
@@ -18,12 +23,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: build/macos/Build/Products/Release/Runner.app
+          # The bundle is named after the app, not "Runner".
+          path: build/macos/Build/Products/Release/*.app
+          if-no-files-found: error
 
   build-ios:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.32.6'
@@ -32,12 +39,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-app
-          path: build/ios/iphonesimulator/Runner.app
+          path: build/ios/iphonesimulator/*.app
+          if-no-files-found: error
 
   build-android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.32.6'
@@ -50,18 +58,26 @@ jobs:
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
 
   build-windows:
-    runs-on: windows-latest
+    # Pinned: the runner needs Visual Studio with the C++ desktop workload, or
+    # the Flutter tool falls back to a generator for a Visual Studio that isn't
+    # installed ("could not find any instance of Visual Studio").
+    runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.32.6'
       - run: flutter pub get
       - run: flutter config --enable-windows-desktop
+      # Shows which Visual Studio the toolchain found, if this breaks again.
+      - run: flutter doctor -v
       - run: flutter build windows
       - uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: build/windows/runner/Release
+          # Flutter >= 3.15 builds into the x64 subdirectory.
+          path: build/windows/x64/runner/Release
+          if-no-files-found: error
