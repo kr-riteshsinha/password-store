@@ -23,7 +23,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: build/macos/Build/Products/Release/Runner.app
+          # The bundle is named after the app, not "Runner".
+          path: build/macos/Build/Products/Release/*.app
+          if-no-files-found: error
 
   build-ios:
     runs-on: macos-latest
@@ -37,7 +39,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-app
-          path: build/ios/iphonesimulator/Runner.app
+          path: build/ios/iphonesimulator/*.app
+          if-no-files-found: error
 
   build-android:
     runs-on: ubuntu-latest
@@ -55,6 +58,7 @@ jobs:
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
 
   build-windows:
     # Pinned: the runner needs Visual Studio with the C++ desktop workload, or
@@ -76,3 +80,4 @@ jobs:
           name: windows-exe
           # Flutter >= 3.15 builds into the x64 subdirectory.
           path: build/windows/x64/runner/Release
+          if-no-files-found: error
