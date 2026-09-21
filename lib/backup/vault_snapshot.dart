@@ -120,7 +120,15 @@ class VaultSnapshot {
   /// Milliseconds are kept: "Back up now" tapped twice in the same second
   /// must not overwrite the earlier snapshot.
   static String fileNameFor(DateTime time) {
-    final stamp = time.toUtc().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
+    // Truncated to milliseconds deliberately: DateTime.now() carries
+    // microseconds, which would make the name six fractional digits on a
+    // real clock and three in a test — and the parser would then miss the
+    // real ones, leaving snapshots invisible in the listing.
+    final utc = DateTime.fromMillisecondsSinceEpoch(
+      time.toUtc().millisecondsSinceEpoch,
+      isUtc: true,
+    );
+    final stamp = utc.toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
     return 'vault-$stamp.bin';
   }
 
@@ -131,14 +139,14 @@ class VaultSnapshot {
     if (match == null) return null;
     // vault-2026-10-03T14-02-30-123Z.bin -> 2026-10-03T14:02:30.123Z
     final match2 = RegExp(
-      r'^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$',
+      r'^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3,6})Z$',
     ).firstMatch(match.group(1)!);
     if (match2 == null) return null;
     final g = match2.groups([1, 2, 3, 4, 5, 6, 7]).map((e) => e!).toList();
     // Parsed as UTC explicitly: without the Z this would be read as local
     // time and every timestamp would shift by the time zone offset.
     return DateTime.tryParse(
-      '${g[0]}-${g[1]}-${g[2]}T${g[3]}:${g[4]}:${g[5]}.${g[6]}Z',
+      '${g[0]}-${g[1]}-${g[2]}T${g[3]}:${g[4]}:${g[5]}.${g[6].padRight(3, '0')}Z',
     );
   }
 }
