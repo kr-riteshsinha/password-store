@@ -153,6 +153,52 @@ void main() {
     });
   });
 
+  group('races and tombstones', () {
+    test('two saves at once cannot lose a revision', () async {
+      await db.insertEntry(_entry('1'));
+
+      // Both start before either finishes — a double-tapped Save button.
+      await Future.wait([
+        db.updateEntry(_entry('1', title: 'First')),
+        db.updateEntry(_entry('1', title: 'Second')),
+      ]);
+
+      expect((await db.fetchEntries()).single.revision, 3);
+    });
+
+    test('updating a deleted entry does not bring it back', () async {
+      await db.insertEntry(_entry('1'));
+      await db.deleteEntry('1');
+
+      await db.updateEntry(_entry('1', title: 'Back from the dead'));
+
+      expect(await db.fetchEntries(), isEmpty);
+      expect((await db.fetchTombstones()).single.title, isEmpty);
+    });
+
+    test('saving the same id again is a deliberate new entry, not a revival', () async {
+      await db.insertEntry(_entry('1'));
+      await db.deleteEntry('1');
+
+      // insertEntry is "save this", so it does clear the tombstone.
+      await db.insertEntry(_entry('1', title: 'Recreated'));
+
+      final live = (await db.fetchEntries()).single;
+      expect(live.title, 'Recreated');
+      expect(live.deletedAt, isNull);
+      expect(live.revision, 3, reason: 'the history continues, it does not restart');
+    });
+
+    test('deleting twice does not bump the revision again', () async {
+      await db.insertEntry(_entry('1'));
+      await db.deleteEntry('1');
+
+      await db.deleteEntry('1');
+
+      expect((await db.fetchTombstones()).single.revision, 2);
+    });
+  });
+
   group('the model', () {
     test('round-trips the tracking columns', () {
       final entry = _entry('1').copyWith(
@@ -168,6 +214,16 @@ void main() {
       expect(restored.deletedAt, 43);
       expect(restored.revision, 7);
       expect(restored.deviceId, 'device-z');
+    });
+
+    test('copyWith can clear the nullable fields', () {
+      final entry = _entry('1').copyWith(deletedAt: 5);
+
+      expect(entry.copyWith(deletedAt: null).deletedAt, isNull);
+      expect(entry.copyWith(totpSecret: null).totpSecret, isNull);
+      // Not passing them leaves them alone.
+      expect(entry.copyWith(title: 'x').deletedAt, 5);
+      expect(entry.copyWith(title: 'x').totpSecret, isNotNull);
     });
 
     test('reads a row written before change tracking existed', () {

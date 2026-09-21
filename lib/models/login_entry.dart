@@ -74,15 +74,20 @@ class LoginEntry {
     };
   }
 
+  /// Marks "not given" for the nullable fields, so passing null can mean
+  /// *clear this* — which is what un-deleting an entry or removing a TOTP
+  /// secret needs.
+  static const _unset = Object();
+
   LoginEntry copyWith({
     String? id,
     String? title,
     String? username,
     String? password,
     String? website,
-    String? totpSecret,
+    Object? totpSecret = _unset,
     int? updatedAt,
-    int? deletedAt,
+    Object? deletedAt = _unset,
     int? revision,
     String? deviceId,
   }) {
@@ -92,9 +97,11 @@ class LoginEntry {
       username: username ?? this.username,
       password: password ?? this.password,
       website: website ?? this.website,
-      totpSecret: totpSecret ?? this.totpSecret,
+      totpSecret:
+          identical(totpSecret, _unset) ? this.totpSecret : totpSecret as String?,
       updatedAt: updatedAt ?? this.updatedAt,
-      deletedAt: deletedAt ?? this.deletedAt,
+      deletedAt:
+          identical(deletedAt, _unset) ? this.deletedAt : deletedAt as int?,
       revision: revision ?? this.revision,
       deviceId: deviceId ?? this.deviceId,
     );

@@ -95,6 +95,11 @@ Tombstones need a retention policy — keep them, say, 90 days, then purge — o
 grows forever. Purging too early resurrects deleted entries from a device that was
 offline longer than the retention window.
 
+**Entries that predate change tracking** keep `updatedAt = 0` and `revision = 1`,
+meaning "no history known". Stamping the upgrade time instead would give the same entry
+a different timestamp on every device that upgraded it, so a merge would be decided by
+who upgraded last rather than by any real edit.
+
 **Clocks are not trustworthy.** Device clocks drift and users change them. Last-writer-wins
 by wall clock is the pragmatic choice, but it is wrong when a device's clock is wrong. A
 Lamport counter per entry (`revision`) ordered by `(revision, updatedAt, deviceId)` is

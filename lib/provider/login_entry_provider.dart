@@ -95,21 +95,37 @@ class LoginEntryProvider with ChangeNotifier {
   /// The device id lives in preferences rather than `vault_meta.json`: that
   /// file travels with a backup, so a restored vault would otherwise claim to
   /// be the device that wrote it.
+  /// Best effort: bookkeeping must never stop someone opening their vault.
+  /// A full or read-only disk would otherwise leave the database open with
+  /// the key in memory while the unlock call threw.
   Future<void> _ensureIdentity() async {
-    final prefs = await SharedPreferences.getInstance();
-    var deviceId = prefs.getString(_deviceIdPref);
-    if (deviceId == null || deviceId.isEmpty) {
-      deviceId = UUIDv4().toString();
-      await prefs.setString(_deviceIdPref, deviceId);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      var deviceId = prefs.getString(_deviceIdPref);
+      if (deviceId == null || deviceId.isEmpty) {
+        deviceId = UUIDv4().toString();
+        await prefs.setString(_deviceIdPref, deviceId);
+      }
+      DbHelper.deviceId = deviceId;
+    } catch (e) {
+      // Fall back to an id for this session, so changes are still stamped
+      // with *something* distinct from other devices.
+      if (DbHelper.deviceId.isEmpty) DbHelper.deviceId = UUIDv4().toString();
+      debugPrint('Could not persist the device id: $e');
     }
-    DbHelper.deviceId = deviceId;
 
-    final meta = _meta;
-    if (meta != null && meta.vaultId == null) {
-      // A vault created before backup existed: give it an id now, once.
-      final updated = meta.copyWith(vaultId: newVaultId());
-      await (await _metaStore()).write(updated);
-      _meta = updated;
+    try {
+      final meta = _meta;
+      if (meta != null && meta.vaultId == null) {
+        // A vault created before backup existed: give it an id now, once.
+        final updated = meta.copyWith(vaultId: newVaultId());
+        await (await _metaStore()).write(updated);
+        _meta = updated;
+      }
+    } catch (e) {
+      // The vault id is only needed once backup is switched on, and that
+      // flow can write it then.
+      debugPrint('Could not write the vault id: $e');
     }
   }
 

@@ -113,14 +113,14 @@ class DbHelper {
     }
     if (oldVersion < 4) {
       // Change tracking for backup and merging (docs/sync-design.md §3.2).
-      // Existing entries are backfilled as "changed once, just now, by no
-      // known device", which is the truthful starting point: nothing is known
-      // about their history.
+      // Existing entries keep updatedAt = 0 and revision = 1, meaning "no
+      // history known". Stamping the upgrade time instead would give the same
+      // entry a different timestamp on every device that upgrades, so merging
+      // would be decided by who upgraded last rather than by any real edit.
       await db.execute('ALTER TABLE $_tableName ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0');
       await db.execute('ALTER TABLE $_tableName ADD COLUMN deletedAt INTEGER');
       await db.execute('ALTER TABLE $_tableName ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
       await db.execute("ALTER TABLE $_tableName ADD COLUMN deviceId TEXT NOT NULL DEFAULT ''");
-      await db.update(_tableName, {'updatedAt': DateTime.now().toUtc().millisecondsSinceEpoch});
     }
   }
 
@@ -158,19 +158,39 @@ class DbHelper {
       () => DateTime.now().toUtc().millisecondsSinceEpoch;
 
   /// Saves a new entry, or replaces one wholesale, stamping it as a change.
+  ///
+  /// The revision is bumped **in SQL**, not read and written back: two saves
+  /// racing (a double-tapped Save button, say) would otherwise both read the
+  /// same number and both write it, losing an increment that merging depends
+  /// on.
   Future<void> insertEntry(LoginEntry entry) async {
     final db = await database;
-    final existing = await _rawEntry(entry.id);
-    await db.insert(
-      _tableName,
-      entry
-          .copyWith(
-            updatedAt: now(),
-            revision: (existing?.revision ?? 0) + 1,
-            deviceId: deviceId,
-          )
-          .toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await db.rawInsert(
+      '''
+      INSERT INTO $_tableName
+        (id, title, username, password, website, totpSecret, updatedAt, deletedAt, revision, deviceId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        username = excluded.username,
+        password = excluded.password,
+        website = excluded.website,
+        totpSecret = excluded.totpSecret,
+        updatedAt = excluded.updatedAt,
+        deletedAt = NULL,
+        deviceId = excluded.deviceId,
+        revision = $_tableName.revision + 1
+      ''',
+      [
+        entry.id,
+        entry.title,
+        entry.username,
+        entry.password,
+        entry.website,
+        entry.totpSecret,
+        now(),
+        deviceId,
+      ],
     );
   }
 
@@ -195,59 +215,56 @@ class DbHelper {
     return (await db.query(_tableName)).map((e) => LoginEntry.fromMap(e)).toList();
   }
 
-  Future<LoginEntry?> _rawEntry(String id) async {
-    final db = await database;
-    final maps = await db.query(_tableName, where: 'id = ?', whereArgs: [id], limit: 1);
-    return maps.isEmpty ? null : LoginEntry.fromMap(maps.first);
-  }
-
+  /// Updates a live entry. A tombstone is left alone: un-deleting an entry is
+  /// exactly what tombstones exist to prevent, so it cannot happen by
+  /// accident from a screen that still holds the old object.
   Future<void> updateEntry(LoginEntry entry) async {
     final db = await database;
-    final existing = await _rawEntry(entry.id);
-    await db.update(
-      _tableName,
-      entry
-          .copyWith(
-            updatedAt: now(),
-            revision: (existing?.revision ?? 0) + 1,
-            deviceId: deviceId,
-          )
-          .toMap(),
-      where: 'id = ?',
-      whereArgs: [entry.id],
+    await db.rawUpdate(
+      '''
+      UPDATE $_tableName SET
+        title = ?, username = ?, password = ?, website = ?, totpSecret = ?,
+        updatedAt = ?, deviceId = ?, revision = revision + 1
+      WHERE id = ? AND deletedAt IS NULL
+      ''',
+      [
+        entry.title,
+        entry.username,
+        entry.password,
+        entry.website,
+        entry.totpSecret,
+        now(),
+        deviceId,
+        entry.id,
+      ],
     );
   }
 
   /// Soft delete: the row stays as a tombstone so the entry cannot come back
   /// from a device that has not synced yet.
+  ///
+  /// A tombstone keeps only the id and the timestamps. Every field the user
+  /// typed is cleared, because tombstones travel to the user's own cloud
+  /// storage and outlive the entry by the whole retention window
+  /// (docs/sync-design.md, DECIDED 7).
   Future<void> deleteEntry(String id) async {
     final db = await database;
-    final existing = await _rawEntry(id);
-    if (existing == null) return;
-    final at = now();
-    await db.update(
-      _tableName,
-      {
-        // A tombstone says only "this id is gone, at this time". Every field
-        // the user typed is cleared, not just the password: a title or a
-        // website is itself a fact about them, and a deleted entry should
-        // leave nothing behind for a backup to carry around.
-        'title': '',
-        'username': '',
-        'password': '',
-        'website': '',
-        'totpSecret': null,
-        'deletedAt': at,
-        'updatedAt': at,
-        'revision': existing.revision + 1,
-        'deviceId': deviceId,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
+    await db.rawUpdate(
+      '''
+      UPDATE $_tableName SET
+        title = '', username = '', password = '', website = '', totpSecret = NULL,
+        deletedAt = ?, updatedAt = ?, deviceId = ?, revision = revision + 1
+      WHERE id = ? AND deletedAt IS NULL
+      ''',
+      [now(), now(), deviceId, id],
     );
   }
 
-  /// Removes a tombstone for good. Used by retention, not by the UI.
+  /// Removes a tombstone for good.
+  ///
+  /// Nothing calls this yet: retention is a later phase of the sync work
+  /// (docs/sync-design.md §8). Until then tombstones accumulate, which is
+  /// cheap — each keeps only an id and timestamps.
   Future<void> purgeTombstone(String id) async {
     final db = await database;
     await db.delete(_tableName, where: 'id = ? AND deletedAt IS NOT NULL', whereArgs: [id]);
