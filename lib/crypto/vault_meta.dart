@@ -15,6 +15,12 @@ class VaultMeta {
   static const currentVersion = 1;
 
   final int version;
+
+  /// Identifies this vault, so a backup is never merged into a different one
+  /// that happens to share a passcode (docs/sync-design.md §3.2). Null for a
+  /// vault created before backup existed; assigned on first use.
+  final String? vaultId;
+
   final KdfParams passcodeKdf;
   final WrappedKey passcodeWrap;
 
@@ -33,6 +39,7 @@ class VaultMeta {
 
   const VaultMeta({
     this.version = currentVersion,
+    this.vaultId,
     required this.passcodeKdf,
     required this.passcodeWrap,
     this.recoveryKdf,
@@ -43,6 +50,7 @@ class VaultMeta {
   bool get hasRecovery => recoveryKdf != null && recoveryWrap != null;
 
   VaultMeta copyWith({
+    String? vaultId,
     KdfParams? passcodeKdf,
     WrappedKey? passcodeWrap,
     KdfParams? recoveryKdf,
@@ -51,6 +59,7 @@ class VaultMeta {
   }) =>
       VaultMeta(
         version: version,
+        vaultId: vaultId ?? this.vaultId,
         passcodeKdf: passcodeKdf ?? this.passcodeKdf,
         passcodeWrap: passcodeWrap ?? this.passcodeWrap,
         recoveryKdf: recoveryKdf ?? this.recoveryKdf,
@@ -60,6 +69,7 @@ class VaultMeta {
 
   Map<String, dynamic> toJson() => {
         'version': version,
+        if (vaultId != null) 'vaultId': vaultId,
         'passcodeKdf': passcodeKdf.toJson(),
         'passcodeWrap': passcodeWrap.toJson(),
         if (recoveryKdf != null) 'recoveryKdf': recoveryKdf!.toJson(),
@@ -78,6 +88,7 @@ class VaultMeta {
     final recoveryWrap = json['recoveryWrap'];
     return VaultMeta(
       version: version,
+      vaultId: json['vaultId'] as String?,
       passcodeKdf: KdfParams.fromJson(json['passcodeKdf'] as Map<String, dynamic>),
       passcodeWrap: WrappedKey.fromJson(json['passcodeWrap'] as Map<String, dynamic>),
       recoveryKdf: recoveryKdf == null
@@ -173,6 +184,7 @@ Future<NewVaultKeys> createVaultKeys({
 
   return NewVaultKeys(
     VaultMeta(
+      vaultId: newVaultId(),
       passcodeKdf: passcodeKdf,
       passcodeWrap: passcodeWrap,
       recoveryKdf: recoveryKdf,
@@ -182,6 +194,11 @@ Future<NewVaultKeys> createVaultKeys({
     databaseKey,
   );
 }
+
+/// A fresh vault id: 16 random bytes as hex. Not secret — it only says
+/// "these backups belong to this vault".
+String newVaultId() =>
+    randomBytes(16).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
 /// Recovery answers are compared ignoring case and surrounding spaces, so the
 /// key has to be derived from the same normalised form.

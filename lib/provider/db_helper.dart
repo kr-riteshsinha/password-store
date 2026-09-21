@@ -19,7 +19,7 @@ typedef EncryptedDatabaseOpener = Future<Database> Function(
 
 class DbHelper {
   static const _dbName = 'logins.db';
-  static const _dbVersion = 3;
+  static const _dbVersion = 4;
   static const _tableName = 'login_entries';
   static const _profileTable = "profile";
 
@@ -101,7 +101,8 @@ class DbHelper {
     if (oldVersion < 2) {
       // v1 had no profile table at all.
       await db.execute(_createProfileTable);
-    } else if (oldVersion < 3) {
+    }
+    if (oldVersion >= 2 && oldVersion < 3) {
       // v2 kept the passcode, recovery question and answer in the profile
       // row. None of them are stored any more, so the columns go. SQLite
       // cannot drop columns portably, hence the rebuild.
@@ -109,6 +110,17 @@ class DbHelper {
       await db.execute('INSERT INTO ${_profileTable}_new (id, name) SELECT id, name FROM $_profileTable');
       await db.execute('DROP TABLE $_profileTable');
       await db.execute('ALTER TABLE ${_profileTable}_new RENAME TO $_profileTable');
+    }
+    if (oldVersion < 4) {
+      // Change tracking for backup and merging (docs/sync-design.md §3.2).
+      // Existing entries keep updatedAt = 0 and revision = 1, meaning "no
+      // history known". Stamping the upgrade time instead would give the same
+      // entry a different timestamp on every device that upgrades, so merging
+      // would be decided by who upgraded last rather than by any real edit.
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN deletedAt INTEGER');
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
+      await db.execute("ALTER TABLE $_tableName ADD COLUMN deviceId TEXT NOT NULL DEFAULT ''");
     }
   }
 
@@ -127,34 +139,135 @@ class DbHelper {
         username TEXT NOT NULL,
         password TEXT NOT NULL,
         website TEXT NOT NULL,
-        totpSecret TEXT
+        totpSecret TEXT,
+        updatedAt INTEGER NOT NULL DEFAULT 0,
+        deletedAt INTEGER,
+        revision INTEGER NOT NULL DEFAULT 1,
+        deviceId TEXT NOT NULL DEFAULT ''
       )
-      
     ''');
     await db.execute(_createProfileTable);
   }
 
+  /// The device writing to this vault, stamped onto every change.
+  /// Set once per install by [LoginEntryProvider].
+  static String deviceId = '';
+
+  /// Overridable for tests, so a change's timestamp can be pinned.
+  static int Function() now =
+      () => DateTime.now().toUtc().millisecondsSinceEpoch;
+
+  /// Saves a new entry, or replaces one wholesale, stamping it as a change.
+  ///
+  /// The revision is bumped **in SQL**, not read and written back: two saves
+  /// racing (a double-tapped Save button, say) would otherwise both read the
+  /// same number and both write it, losing an increment that merging depends
+  /// on.
   Future<void> insertEntry(LoginEntry entry) async {
     final db = await database;
-    await db.insert(_tableName, entry.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    final entries = await fetchEntries();
-
+    await db.rawInsert(
+      '''
+      INSERT INTO $_tableName
+        (id, title, username, password, website, totpSecret, updatedAt, deletedAt, revision, deviceId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        username = excluded.username,
+        password = excluded.password,
+        website = excluded.website,
+        totpSecret = excluded.totpSecret,
+        updatedAt = excluded.updatedAt,
+        deletedAt = NULL,
+        deviceId = excluded.deviceId,
+        revision = $_tableName.revision + 1
+      ''',
+      [
+        entry.id,
+        entry.title,
+        entry.username,
+        entry.password,
+        entry.website,
+        entry.totpSecret,
+        now(),
+        deviceId,
+      ],
+    );
   }
 
+  /// The live entries: tombstones are rows, but they are not entries any more.
   Future<List<LoginEntry>> fetchEntries() async {
     final db = await database;
-    final maps = await db.query(_tableName);
+    final maps = await db.query(_tableName, where: 'deletedAt IS NULL');
     return maps.map((e) => LoginEntry.fromMap(e)).toList();
   }
 
-  Future<void> updateEntry(LoginEntry entry) async {
+  /// Deleted entries, kept so another device cannot resurrect them
+  /// (docs/sync-design.md §3.2).
+  Future<List<LoginEntry>> fetchTombstones() async {
     final db = await database;
-    await db.update(_tableName, entry.toMap(), where: 'id = ?', whereArgs: [entry.id]);
+    final maps = await db.query(_tableName, where: 'deletedAt IS NOT NULL');
+    return maps.map((e) => LoginEntry.fromMap(e)).toList();
   }
 
+  /// Every row, tombstones included. For backup and merging, not for the UI.
+  Future<List<LoginEntry>> fetchEntriesForSync() async {
+    final db = await database;
+    return (await db.query(_tableName)).map((e) => LoginEntry.fromMap(e)).toList();
+  }
+
+  /// Updates a live entry. A tombstone is left alone: un-deleting an entry is
+  /// exactly what tombstones exist to prevent, so it cannot happen by
+  /// accident from a screen that still holds the old object.
+  Future<void> updateEntry(LoginEntry entry) async {
+    final db = await database;
+    await db.rawUpdate(
+      '''
+      UPDATE $_tableName SET
+        title = ?, username = ?, password = ?, website = ?, totpSecret = ?,
+        updatedAt = ?, deviceId = ?, revision = revision + 1
+      WHERE id = ? AND deletedAt IS NULL
+      ''',
+      [
+        entry.title,
+        entry.username,
+        entry.password,
+        entry.website,
+        entry.totpSecret,
+        now(),
+        deviceId,
+        entry.id,
+      ],
+    );
+  }
+
+  /// Soft delete: the row stays as a tombstone so the entry cannot come back
+  /// from a device that has not synced yet.
+  ///
+  /// A tombstone keeps only the id and the timestamps. Every field the user
+  /// typed is cleared, because tombstones travel to the user's own cloud
+  /// storage and outlive the entry by the whole retention window
+  /// (docs/sync-design.md, DECIDED 7).
   Future<void> deleteEntry(String id) async {
     final db = await database;
-    await db.delete(_tableName, where: 'id = ?', whereArgs: [id]);
+    await db.rawUpdate(
+      '''
+      UPDATE $_tableName SET
+        title = '', username = '', password = '', website = '', totpSecret = NULL,
+        deletedAt = ?, updatedAt = ?, deviceId = ?, revision = revision + 1
+      WHERE id = ? AND deletedAt IS NULL
+      ''',
+      [now(), now(), deviceId, id],
+    );
+  }
+
+  /// Removes a tombstone for good.
+  ///
+  /// Nothing calls this yet: retention is a later phase of the sync work
+  /// (docs/sync-design.md §8). Until then tombstones accumulate, which is
+  /// cheap — each keeps only an id and timestamps.
+  Future<void> purgeTombstone(String id) async {
+    final db = await database;
+    await db.delete(_tableName, where: 'id = ? AND deletedAt IS NOT NULL', whereArgs: [id]);
   }
 
   /// Saves the vault's profile. The app is single-profile, so this throws a

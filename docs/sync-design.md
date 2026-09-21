@@ -79,15 +79,26 @@ schema needs:
 |---|---|
 | `updatedAt` (UTC millis) | Decide which side of an edit is newer |
 | `deletedAt` (nullable) | A **tombstone**: without it, a deleted entry comes back from the other device |
+| *(fields cleared)* | A tombstone keeps **only the id and the timestamps**. Title, username, website, password and TOTP secret are all cleared on delete — see DECIDED 7 |
 | `revision` (int) | Cheap change detection, and a tiebreak when clocks are equal |
 | `deviceId` | Tiebreak when two devices write in the same millisecond, and useful in logs |
 
-Plus, once per vault: a `vaultId` (UUID, in `vault_meta.json`) so the app can refuse to
-merge two *different* vaults that happen to share a passcode.
+Plus, once per vault: a `vaultId` (in `vault_meta.json`) so the app can refuse to merge
+two *different* vaults that happen to share a passcode.
+
+The `deviceId`, by contrast, is **per install and stays local** (in preferences, not in
+`vault_meta.json`). That file travels with a backup, so a vault restored onto a second
+device would otherwise claim to be the device that wrote it — and every tiebreak that
+depends on `deviceId` would be wrong.
 
 Tombstones need a retention policy — keep them, say, 90 days, then purge — or the vault
 grows forever. Purging too early resurrects deleted entries from a device that was
 offline longer than the retention window.
+
+**Entries that predate change tracking** keep `updatedAt = 0` and `revision = 1`,
+meaning "no history known". Stamping the upgrade time instead would give the same entry
+a different timestamp on every device that upgraded it, so a merge would be decided by
+who upgraded last rather than by any real edit.
 
 **Clocks are not trustworthy.** Device clocks drift and users change them. Last-writer-wins
 by wall clock is the pragmatic choice, but it is wrong when a device's clock is wrong. A
@@ -284,7 +295,7 @@ Each becomes its own work item. Nothing touches the user's data until phase 3.
 
 **Backup — the safety net, shipped first**
 
-1. **Change tracking.** Schema v4: `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` and `deviceId` in `vault_meta.json`. No sync, no UI. Lands first precisely so that backups already carry what merging will need.
+1. **Change tracking.** Schema v4: `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` in `vault_meta.json`, `deviceId` in local preferences. No sync, no UI. Lands first precisely so that backups already carry what merging will need.
 2. **Snapshot bundle format.** `VACUUM INTO` export, AES-GCM sealing, format versioning, the temp-and-rename protocol, integrity failures surfaced as errors.
 3. **Folder backend, backup and restore.** The OS pickers; the settings drawer item that replaces the `ICloud` placeholder; **Back up now**, the daily upload, restore-with-warning, last-backup time and error state. From here a lost device no longer means a lost vault.
 
@@ -330,6 +341,17 @@ storage access framework. Mobile is where a lost device is most likely, so backu
 only works on a laptop misses the point. The extra work is the pickers and persisting a
 security-scoped bookmark or tree URI across launches; everything behind the backend
 interface is shared.
+
+### DECIDED 7 — A tombstone keeps only the id and timestamps
+
+Deleting clears every field the user typed, not just the password. A title such as
+"Very Private Bank" or a website is itself a fact about them, and a deleted entry should
+leave nothing for a backup to carry around: tombstones travel to the user's cloud
+storage and can outlive the entry by the whole retention window.
+
+The cost is that "restore a deleted entry" can never be built from a tombstone — only
+from a snapshot taken before the deletion. That is the right trade: snapshots already
+exist for exactly this, and they are the thing a user reaches for after a mistake.
 
 ### Still open
 

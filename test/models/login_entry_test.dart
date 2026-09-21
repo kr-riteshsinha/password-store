@@ -20,6 +20,11 @@ void main() {
         'password': 's3cret!',
         'website': 'https://github.com',
         'totpSecret': 'JBSWY3DPEHPK3PXP',
+        // Change tracking for backup and merging.
+        'updatedAt': 0,
+        'deletedAt': null,
+        'revision': 1,
+        'deviceId': '',
       });
     });
 
