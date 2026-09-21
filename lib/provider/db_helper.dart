@@ -228,8 +228,14 @@ class DbHelper {
     await db.update(
       _tableName,
       {
-        // The secret goes now; only the tombstone needs to survive.
+        // A tombstone says only "this id is gone, at this time". Every field
+        // the user typed is cleared, not just the password: a title or a
+        // website is itself a fact about them, and a deleted entry should
+        // leave nothing behind for a backup to carry around.
+        'title': '',
+        'username': '',
         'password': '',
+        'website': '',
         'totpSecret': null,
         'deletedAt': at,
         'updatedAt': at,

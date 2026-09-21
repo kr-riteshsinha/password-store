@@ -79,6 +79,7 @@ schema needs:
 |---|---|
 | `updatedAt` (UTC millis) | Decide which side of an edit is newer |
 | `deletedAt` (nullable) | A **tombstone**: without it, a deleted entry comes back from the other device |
+| *(fields cleared)* | A tombstone keeps **only the id and the timestamps**. Title, username, website, password and TOTP secret are all cleared on delete — see DECIDED 7 |
 | `revision` (int) | Cheap change detection, and a tiebreak when clocks are equal |
 | `deviceId` | Tiebreak when two devices write in the same millisecond, and useful in logs |
 
@@ -335,6 +336,17 @@ storage access framework. Mobile is where a lost device is most likely, so backu
 only works on a laptop misses the point. The extra work is the pickers and persisting a
 security-scoped bookmark or tree URI across launches; everything behind the backend
 interface is shared.
+
+### DECIDED 7 — A tombstone keeps only the id and timestamps
+
+Deleting clears every field the user typed, not just the password. A title such as
+"Very Private Bank" or a website is itself a fact about them, and a deleted entry should
+leave nothing for a backup to carry around: tombstones travel to the user's cloud
+storage and can outlive the entry by the whole retention window.
+
+The cost is that "restore a deleted entry" can never be built from a tombstone — only
+from a snapshot taken before the deletion. That is the right trade: snapshots already
+exist for exactly this, and they are the thing a user reaches for after a mistake.
 
 ### Still open
 

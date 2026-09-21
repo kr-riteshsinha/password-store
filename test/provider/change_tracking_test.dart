@@ -98,14 +98,32 @@ void main() {
       expect((await db.fetchTombstones()).single.revision, 2);
     });
 
-    test('a tombstone keeps no password or TOTP secret', () async {
+    test('a tombstone keeps only the id and the timestamps', () async {
       await db.insertEntry(_entry('1'));
 
       await db.deleteEntry('1');
 
       final tombstone = (await db.fetchTombstones()).single;
+      expect(tombstone.id, '1');
+      expect(tombstone.deletedAt, isNotNull);
       expect(tombstone.password, isEmpty);
       expect(tombstone.totpSecret, isNull);
+      // A title or a website is a fact about the user too.
+      expect(tombstone.title, isEmpty);
+      expect(tombstone.username, isEmpty);
+      expect(tombstone.website, isEmpty);
+    });
+
+    test('nothing the user typed survives in the row', () async {
+      await db.insertEntry(_entry('1', title: 'Very Private Bank'));
+
+      await db.deleteEntry('1');
+
+      final row = (await (await db.database)
+              .query('login_entries', where: 'id = ?', whereArgs: ['1']))
+          .single;
+      expect(row.values.join(' '), isNot(contains('Very Private Bank')));
+      expect(row.values.join(' '), isNot(contains('octocat')));
     });
 
     test('deleting an entry that is not there does nothing', () async {
