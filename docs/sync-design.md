@@ -286,6 +286,28 @@ everything lands inside one local transaction. A true conflict — the same entr
 on two devices — keeps both, the loser becoming
 `GitHub (conflicted copy from Pixel, 3 Oct 14:02)`. Nothing is resolved silently.
 
+Two rules the first implementation had to settle:
+
+**A conflict needs a record of when the two sides last agreed.** Comparing versions
+alone cannot tell "we both changed this" from "you are simply behind", so every
+difference would be flagged and the app would nag about changes it could safely apply.
+The engine takes the revision each id was last agreed at; without one, it treats a
+difference as one side being behind.
+
+**A deletion settles a would-be conflict rather than asking.** When one side deleted an
+entry and the other edited it, asking the user to choose means offering to resurrect
+something they deliberately removed. The deletion wins if it is not older, and the
+edited version is still in a snapshot if they want it back.
+
+**Two deletions are agreement, not a conflict.** Tombstones made on two devices differ
+in device and timestamp, so a naive comparison calls them a conflict — and since a
+conflict is resolved by keeping both, an entry deleted on *both* devices would reappear,
+and be re-reported on every later pass. Deleting something twice must mean it is gone.
+
+**An entry only one side has is never a deletion.** It is news, and it is uploaded or
+applied. This is what makes an empty or unreadable remote listing incapable of emptying
+a vault: deletions arrive only as tombstones, never as absence.
+
 Because phase 1 puts the history in the schema from the start, a v1 snapshot already
 contains everything v2 needs: the first merge simply reads it.
 
