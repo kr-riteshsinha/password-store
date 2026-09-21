@@ -54,7 +54,10 @@ Future<void> initEncryptedTestDatabase() async {
     return databaseFactoryFfiNoIsolate.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: options.version,
+        // readOnly matters: backup opens a candidate snapshot read-only to
+        // check it, and must not create a database when handed nonsense.
+        readOnly: options.readOnly,
+        version: options.readOnly ? null : options.version,
         onCreate: options.onCreate,
         onUpgrade: options.onUpgrade,
         // Must run before anything reads the file, including the version check.
