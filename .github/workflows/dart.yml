@@ -66,6 +66,24 @@ jobs:
             build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.6'
+      # libssl-dev: sqlcipher_flutter_libs builds SQLCipher against OpenSSL.
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libssl-dev
+      - run: flutter pub get
+      - run: flutter config --enable-linux-desktop
+      - run: flutter build linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-bundle
+          path: build/linux/x64/release/bundle
+          if-no-files-found: error
+
   build-windows:
     # Pinned: the runner needs Visual Studio with the C++ desktop workload, or
     # the Flutter tool falls back to a generator for a Visual Studio that isn't

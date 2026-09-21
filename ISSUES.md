@@ -60,7 +60,7 @@ Line numbers refer to commit `65a5a5a`.
 | # | Sev | Issue | Location |
 |---|:---:|-------|----------|
 | 26 | ✅ | **Fixed:** `_onUpgrade` has one branch per version (v1 creates the `profile` table, v3 rebuilds it without the dropped columns), so a bump no longer reruns earlier statements. Original report: `_onUpgrade` isn't version-aware. It creates `profile` whenever `oldVersion < newVersion`, so the next schema bump will fail with "table profile already exists". | `db_helper.dart:39-52` |
-| 27 | 🟠 | Windows and Linux never initialize `sqflite_common_ffi`, so the database can't open there. The web isn't supported by `sqflite`. | `lib/main.dart` |
+| 27 | ✅ | **Fixed:** `initPlatformDatabase()` points sqflite at `sqflite_common_ffi` on Windows and Linux, and the vault opens against the SQLCipher bundled by `sqlcipher_flutter_libs`, with `PRAGMA key` applied in `onConfigure`. Every open now asserts `PRAGMA cipher_version`, so a build without SQLCipher fails instead of writing a plaintext vault. Web is still unsupported. Original report: Windows and Linux never initialize `sqflite_common_ffi`, so the database can't open there. The web isn't supported by `sqflite`. | `lib/main.dart` |
 
 ## Build, CI and tests
 

@@ -96,7 +96,7 @@ These features are **planned, not yet built**. Contributions are welcome.
 - [ ] Manage and revoke shares, and see what has been shared with you
 - [ ] Quick unlock with Face ID / Touch ID / fingerprint or a short PIN: the vault key is kept in the OS Keychain / Keystore, and after a few wrong PINs the app falls back to the full passcode, which is also required after a restart and every few days ([#37](https://github.com/kr-riteshsinha/password-store/issues/37))
 - [ ] Recovery key shown once at setup, replacing the hint question and answer, so recovery still works once the vault is encrypted ([#38](https://github.com/kr-riteshsinha/password-store/issues/38))
-- [ ] Windows and Linux database support
+- [x] Windows and Linux database support (built in CI; still to be confirmed on a real machine)
 
 ## Supported platforms
 
@@ -105,8 +105,8 @@ These features are **planned, not yet built**. Contributions are welcome.
 | Android | ✅ | ✅ |
 | iOS | ✅ | ✅ |
 | macOS | ✅ | ✅ |
-| Windows | ✅ | ❌ The database can't open yet (needs `sqflite_common_ffi`) |
-| Linux | ✅ | ❌ The database can't open yet (needs `sqflite_common_ffi`) |
+| Windows | ✅ | ⚠️ Builds and should store data (via `sqflite_common_ffi` + bundled SQLCipher); not yet tried on a real machine |
+| Linux | ✅ | ⚠️ Builds and should store data (via `sqflite_common_ffi` + bundled SQLCipher); not yet tried on a real machine |
 | Web | – | ❌ `sqflite` has no web support |
 
 ## Getting started

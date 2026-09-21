@@ -45,12 +45,14 @@ dependencies:
   sqflite_sqlcipher: ^3.3.0
   hashlib: ^2.4.2
   cryptography: ^2.9.0
+  sqlcipher_flutter_libs: ^0.6.8
+  # Opens the database on Windows and Linux, and on the host under
+  # `flutter test`; sqflite itself has no desktop implementation.
+  sqflite_common_ffi: ^2.3.4
 dev_dependencies:
   flutter_launcher_icons: "^0.13.1"
   flutter_test:
     sdk: flutter
-  # Runs sqflite on the host (FFI) so database tests work under `flutter test`.
-  sqflite_common_ffi: ^2.3.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

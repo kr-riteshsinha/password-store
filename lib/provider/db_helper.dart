@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 
 import '../crypto/vault_keys.dart';
+import 'platform_database.dart';
 import '../models/login_entry.dart';
 
 /// Opens an encrypted database. Production uses SQLCipher through its plugin;
@@ -62,16 +63,30 @@ class DbHelper {
     );
 
     final opener = encryptedOpenerOverride;
-    _db = opener != null
+    final db = opener != null
         ? await opener(path, passphrase, options)
-        : await sqlcipher.openDatabase(
-            path,
-            password: passphrase,
-            version: options.version,
-            onCreate: options.onCreate,
-            onUpgrade: options.onUpgrade,
-          );
-    return _db!;
+        // Windows and Linux have no plugin implementation, so they open the
+        // bundled SQLCipher through FFI instead (ISSUES.md #27).
+        : usesFfiDatabase
+            ? await openEncryptedWithFfi(path, passphrase, options)
+            : await sqlcipher.openDatabase(
+                path,
+                password: passphrase,
+                version: options.version,
+                onCreate: options.onCreate,
+                onUpgrade: options.onUpgrade,
+              );
+
+    try {
+      await assertSqlCipher(db);
+    } catch (_) {
+      // Otherwise the handle leaks: _db is still null, so close() cannot
+      // reach it, and on Windows the open file blocks replacing the vault.
+      await db.close();
+      rethrow;
+    }
+    _db = db;
+    return db;
   }
 
   /// Locks the vault by closing the database and dropping the key with it.
