@@ -1,11 +1,56 @@
 import 'package:archinfotech/screens/add-login.dart';
 import 'package:archinfotech/screens/list_login.dart';
 import 'package:archinfotech/screens/setting-drawer.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-class PasswordManagerApp extends StatelessWidget {
+import 'backup/backup_folder.dart';
+import 'backup/backup_manager.dart';
+import 'backup/backup_settings.dart';
+import 'provider/login_entry_provider.dart';
+
+class PasswordManagerApp extends StatefulWidget {
   const PasswordManagerApp({super.key});
 
+  @override
+  State<PasswordManagerApp> createState() => _PasswordManagerAppState();
+}
+
+class _PasswordManagerAppState extends State<PasswordManagerApp> {
+  @override
+  void initState() {
+    super.initState();
+    _backUpIfDue();
+  }
+
+  /// The daily backup (`docs/sync-design.md` §5.1). Runs once the vault is
+  /// open, says nothing, and gives up quietly: a folder that is unmounted or
+  /// no longer permitted must not stand between the user and their
+  /// passwords. The backup screen shows when the last one happened.
+  Future<void> _backUpIfDue() async {
+    final provider = context.read<LoginEntryProvider>();
+    final settings = BackupSettings();
+
+    try {
+      final path = await settings.folder();
+      final key = provider.databaseKey;
+      final meta = provider.meta;
+      if (path == null || key == null || meta == null) return;
+
+      final info = await BackupManager().backUpIfDue(
+        folder: LocalBackupFolder(path),
+        databaseKey: key,
+        meta: meta,
+        deviceId: provider.deviceId ?? '',
+        deviceName: (await provider.getProfile())?.name,
+        lastBackupAt: await settings.lastBackupAt(),
+      );
+      if (info != null) await settings.setLastBackupAt(info.takenAt);
+    } catch (e) {
+      debugPrint('Daily backup did not run: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

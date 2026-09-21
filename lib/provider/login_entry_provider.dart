@@ -135,6 +135,22 @@ class LoginEntryProvider with ChangeNotifier {
   /// This vault's id, or null before a vault has been opened.
   String? get vaultId => _meta?.vaultId;
 
+  /// The key that opens the vault, while it is unlocked. Backup needs it to
+  /// seal a snapshot; nothing else should reach for it.
+  Uint8List? get databaseKey => _databaseKey;
+
+  /// The vault metadata, while the vault is unlocked. It travels with a
+  /// backup so another device can unwrap the same key.
+  VaultMeta? get meta => _meta;
+
+  /// Whether [passcode] opens this vault. Used before turning backup on, so
+  /// the passcode can be checked for length without storing it.
+  Future<bool> passcodeIsCorrect(String passcode) async {
+    final meta = _meta ?? await (await _metaStore()).read();
+    if (meta == null) return false;
+    return await unlockWithPasscode(meta, passcode) != null;
+  }
+
   /// Closes the vault and forgets the key.
   Future<void> lock() async {
     _databaseKey = null;

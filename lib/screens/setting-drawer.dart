@@ -1,3 +1,4 @@
+import 'package:archinfotech/screens/backup_screen.dart';
 import 'package:archinfotech/screens/change_password.dart';
 import 'package:archinfotech/screens/password_auth.dart';
 import 'package:flutter/material.dart';
@@ -72,9 +73,14 @@ class _SettingDrawerState extends State<SettingDrawer> {
               onTap: () {},
             ),
             ListTile(
-              leading: const Icon(Icons.apple_sharp),
-              title: const Text('ICloud', style: TextStyle(fontSize: 18)),
-              onTap: () {},
+              leading: const Icon(Icons.backup_outlined),
+              title: const Text('Backup', style: TextStyle(fontSize: 18)),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const BackupScreen()),
+                );
+              },
             ),
             ListTile(
               leading: const Icon(Icons.settings),
