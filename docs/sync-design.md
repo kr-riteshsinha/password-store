@@ -1,7 +1,10 @@
 # Bring-your-own-storage sync — design discussion
 
-**Status:** draft for discussion. Nothing here is built. Decisions marked **OPEN** need a
-call before any code is written.
+**Status:** draft for discussion. Nothing here is built.
+
+**Direction agreed:** ship **encrypted backup and restore first**, with true multi-device
+merging as the goal. The schema work that merging needs lands early, so moving from one
+to the other is not a migration.
 
 The README promises a vault you sync through *your own* iCloud Drive, Google Drive or
 bucket: no project server, no project account, ciphertext only. This document works out
@@ -34,7 +37,8 @@ website, totpSecret)` and nothing else. Merging is impossible with that alone.
 
 **Goals**
 
-- Two or more devices converge on the same vault contents.
+- The vault survives a lost or broken device, and a new device can pick it up (v1).
+- Two or more devices converge on the same vault contents (v2).
 - The storage provider only ever sees ciphertext.
 - Works with storage the user already has and controls.
 - An interrupted or half-finished sync never destroys data.
@@ -42,7 +46,8 @@ website, totpSecret)` and nothing else. Merging is impossible with that alone.
 
 **Non-goals for the first version**
 
-- Real-time sync. Minutes of delay are fine.
+- Editing on two devices at once. v1 has a single writer; the rest restore.
+- Real-time sync. A day of delay is the v1 default.
 - Sharing a credential with another person (that is its own roadmap item).
 - Web. `sqflite` has no web support.
 - A project-operated server of any kind.
@@ -102,95 +107,145 @@ promise with no OAuth client, no consent screen, no API keys and no per-provider
 Provider APIs (Drive REST, S3, WebDAV) can come later behind the same interface, and
 buy mainly better conflict detection through server-side revision ids.
 
+### 3.4 "Connect once" looks different per provider
+
+A single "enter your credentials" screen cannot work, because most providers do not
+issue credentials to apps at all:
+
+| Provider | How an app connects | What we store |
+|---|---|---|
+| iCloud Drive | The device's signed-in account, through an iCloud container entitlement or the document picker | Nothing |
+| Google Drive, OneDrive, Dropbox | OAuth in a browser | A refresh token, in the OS keychain |
+| S3-compatible, WebDAV, Nextcloud | Credentials, genuinely | Access key and secret, in the OS keychain |
+
+**There is no API that takes an Apple ID and password**, and a screen that asked for one
+would be phishing-shaped and rejected from the App Store. The same holds for a Google
+password. Only the third row is a username-and-password box.
+
+What is true for every row: connect once, then the app can reach the storage whenever it
+likes, without asking again. Any secret we do hold goes in the OS keychain, never in the
+vault and never in `vault_meta.json`.
+
 ## 4. Design decisions
 
-### OPEN 1 — What is the unit of sync?
+### DECIDED 1 — Backup and restore first, merging later
 
-**Option A: one small encrypted file per entry** *(recommended)*
+**Version 1 uploads a whole-vault snapshot**, once a day, and other devices restore from
+it. Version 2 moves to per-entry files and a real merge.
 
-```
-vault/
-  meta.json              wrapped keys, vaultId, format version
-  items/<uuid>.bin       one entry, AES-GCM under the vault key
-  items/<uuid>.bin
-```
+This is worth being blunt about: **whole-file upload is a backup, not sync.** With one
+writing device it is perfectly safe. With two it loses data, and quietly:
 
-- Two devices editing *different* entries never conflict at all.
-- Small immutable files are what sync clients handle best.
-- Recovering from a partial sync is trivial: missing files are simply missing entries.
-- **Cost:** the number of entries and their ids are visible to the provider, as are file timestamps. Contents and titles are not.
+> Phone adds a password at 09:00. Laptop uploads its own copy at 14:00, from before that.
+> The phone's password is gone — no error, no conflict, no way back unless the provider
+> kept an old version.
 
-**Option B: one encrypted snapshot of the whole vault**
+So v1 constrains the shape rather than pretending the problem away:
 
-```
-vault/
-  meta.json
-  vault-<timestamp>.bin  entire vault, sealed
-```
+- **One device is the writer.** It uploads; the others do not.
+- **The others restore**, explicitly, with a warning that local changes are replaced.
+- **Handing the writer role over is a deliberate action**, so two devices never both upload.
+- The UI calls it backup, never "sync", until merging exists.
 
-- Leaks nothing but the vault's size and when you use it.
-- **Cost:** any two offline edits conflict over the *whole vault*, and resolving means choosing one device's version and discarding the other's. For a password manager that means silently losing a password someone just saved.
+What this buys immediately: the vault survives a lost laptop, and a new device can pick
+it up. What it does not buy: editing on two devices. A password added on the phone
+leaves the laptop stale until it restores.
 
-A hybrid is possible — per-entry files plus a periodic sealed snapshot for backup — and
-is probably where this ends up, but the first version should pick one.
+**Why merging still shapes v1.** The per-entry history (§3.2) lands in phase 1, before
+any of this. Entries carry `updatedAt`, `deletedAt`, `revision` and `deviceId` from the
+start, and snapshots therefore contain them. When the merge engine arrives, existing
+backups already hold everything it needs — no second migration, and no vault written by
+v1 that v2 cannot reconcile.
 
-### OPEN 2 — Which storage first?
+### DECIDED 2 — A folder the user picks, first
 
-**Recommended:** a folder the user picks (§3.3), with the provider's own client doing
-the syncing. It reaches desktop and mobile through OS pickers, needs no credentials, and
-keeps the "your storage, your account" promise literally true.
+The user chooses a directory their own client already syncs: iCloud Drive, Dropbox,
+Google Drive, OneDrive, or a plain folder. Desktop gets a directory picker; iOS the
+document picker; Android the storage access framework (§3.3). No OAuth, no API keys, no
+server.
 
-**Alternative:** implement Google Drive's API first. Better conflict detection and
-identical behaviour everywhere, at the cost of an OAuth client, a verification review,
-and a new integration for every provider after it.
+Provider APIs (Drive REST, S3, WebDAV) come later behind the same interface, for
+platforms or providers where a folder is not enough — and that is where the credential
+screen in §3.4 belongs.
 
-### OPEN 3 — What triggers a sync?
+### DECIDED 3 — Daily, plus a button
 
-**Recommended for v1:** a manual **Sync now** in the settings drawer — which is what the
-placeholder `ICloud` item at `lib/screens/setting-drawer.dart:74` should become — plus a
-visible "last synced" time and an obvious error state. While the merge code is new,
-silent background sync turns merge bugs into silent data loss.
+The writer uploads **once a day** automatically, and whenever the user taps **Back up
+now**. Restore is always manual and always confirmed. The settings drawer shows the
+folder, the last backup time and any error, in place of today's placeholder `ICloud`
+item (`lib/screens/setting-drawer.dart:74`).
 
-**Later:** sync on unlock, after an edit, and periodically.
+Automatic *merging* stays off until the merge engine has proven itself; a daily
+one-directional upload from a single writer has no merge to get wrong.
 
-## 5. Proposed shape, if the recommendations are taken
+## 5. Proposed shape
+
+### 5.1 Version 1 — backup and restore
 
 **Remote layout**
 
 ```
 <chosen folder>/
-  meta.json                    wrapped keys, vaultId, format version
-  items/<uuid>.bin             AES-GCM: nonce | ciphertext | tag
-  tombstones/<uuid>.bin        deletions, retained 90 days
+  meta.json                  wrapped keys, vaultId, format version
+  backups/
+    vault-<timestamp>.bin    whole-vault snapshot, sealed
+    vault-<timestamp>.bin    the last N kept, oldest pruned
+  writer.json                which device currently uploads
 ```
 
-`meta.json` is written once and only changes when the passcode changes. Every other file
-is immutable once written: an edit writes a new file and replaces it atomically.
+**Producing a snapshot.** Never upload `logins.db` itself (§3.1). The writer runs
+`VACUUM INTO` (or `sqlcipher_export`) into a temporary file while the vault stays open,
+seals that, uploads it, then deletes the temporary copy.
 
-**Write protocol (every file, every platform)**
+**Writing a file, on every platform**
 
-1. Write `<name>.tmp`.
-2. `fsync`.
-3. Rename over the target — atomic on every filesystem we support.
+1. Write `<name>.tmp`
+2. `fsync`
+3. Rename over the target — atomic on every filesystem we support
 
-Never edit in place. A crash leaves either the old file or the new one, never half of each.
+A crash leaves either the old file or the new one, never half of each. Snapshots are
+named by timestamp and never overwritten, so a failed upload cannot damage an earlier
+backup.
 
-**Sync algorithm (one pass)**
+**Daily upload (writer only)**
 
-1. Read the remote `meta.json`. If `vaultId` differs from the local one, stop and ask: this is a different vault, not a conflict.
-2. List remote items and compare `(revision, updatedAt, deviceId)` per id against local.
-3. For each id: remote newer → decrypt, verify, apply locally. Local newer → upload. Equal → skip.
-4. Tombstones beat entries of the same or older revision.
-5. Apply everything inside one local transaction, so a failure mid-merge changes nothing.
-6. Record `lastSyncedAt` and per-item revisions.
+1. Check `meta.json`: if `vaultId` differs, stop — this folder holds a different vault.
+2. Check `writer.json`: if another device claims the role, stop and say so.
+3. Export, seal, upload, prune to the last N snapshots.
+4. Record `lastBackupAt` locally and show it in the drawer.
 
-**True conflicts** — the same entry edited on two devices since the last sync — are rare
-with per-entry files, and must never be resolved silently. Keep both: the loser becomes
-a new entry titled `GitHub (conflicted copy from Pixel, 3 Oct 14:02)`, so nothing is
-lost and the user decides.
+**Restore (any device, always manual)**
 
-**Schema changes** (`login_entries`): `updatedAt`, `deletedAt`, `revision`, `deviceId`,
-all under a schema v4 migration. `deviceId` and `vaultId` go in `vault_meta.json`.
+1. List snapshots, newest first, with their timestamps.
+2. Warn plainly: *this replaces everything in the local vault*.
+3. Download, verify the authentication tag, unwrap with the passcode, write to a temporary database, then swap it in atomically.
+4. A failed tag or a wrong passcode aborts before anything local is touched.
+
+**Taking over as writer** is explicit: the device says so, `writer.json` is rewritten,
+and the previous writer stops uploading when it next notices. Two devices uploading is
+the one situation this design cannot survive, so the role is visible in the UI at all
+times.
+
+### 5.2 Version 2 — merging
+
+Per-entry files, alongside the snapshots rather than instead of them:
+
+```
+<chosen folder>/
+  meta.json
+  items/<uuid>.bin           one entry, AES-GCM under the vault key
+  tombstones/<uuid>.bin      deletions, retained 90 days
+  backups/vault-<ts>.bin     snapshots stay, as backup
+```
+
+Merge, one pass: compare `(revision, updatedAt, deviceId)` per id; remote newer applies
+locally, local newer uploads, tombstones beat entries of the same or older revision, and
+everything lands inside one local transaction. A true conflict — the same entry edited
+on two devices — keeps both, the loser becoming
+`GitHub (conflicted copy from Pixel, 3 Oct 14:02)`. Nothing is resolved silently.
+
+Because phase 1 puts the history in the schema from the start, a v1 snapshot already
+contains everything v2 needs: the first merge simply reads it.
 
 ## 6. Threat model, once the vault leaves the device
 
@@ -215,27 +270,35 @@ Consequences worth being explicit about, in the README as well as here:
 - **Two devices, same second, same entry.** Handled by `(revision, updatedAt, deviceId)` and, failing that, a conflicted copy.
 - **The user changes the passcode on device A.** `meta.json` is rewrapped; device B still has the old wrapping and keeps working locally, but must re-read `meta.json` before it can sync again. The database key itself never changes, so the entries stay readable — a direct benefit of not deriving the key from the passcode.
 - **The user restores an old folder from backup.** Old revisions lose to newer local ones, so the vault heals; tombstones stop deleted entries returning, until they are purged.
+- **Two devices both upload.** The one case v1 cannot survive, which is why the writer role is explicit and visible. A device that finds another writer in `writer.json` refuses to upload rather than racing.
+- **A stale device restores over newer work.** Restore is manual, warns plainly and names the snapshot's timestamp, so this is a choice rather than an accident.
 - **The folder is gone or unreadable** (unmounted, permission revoked, provider signed out). Sync must fail visibly and never treat "no remote items" as "everything was deleted" — that mistake would wipe the vault.
 - **Storage is full or the file is locked** mid-write. The temp-file-and-rename protocol leaves the old state intact.
 
-## 8. Suggested phases
+## 8. Phases
 
-Each becomes its own work item. Every phase ships something testable, and nothing
-touches the user's data until phase 4.
+Each becomes its own work item. Nothing touches the user's data until phase 3.
 
-1. **Change tracking.** Schema v4 with `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` in `vault_meta.json`. No sync, no UI. Unit-testable in full.
-2. **Merge engine.** Pure Dart, no I/O: given local and remote item metadata, decide apply / upload / skip / conflict. This is where the data loss lives, so it gets the heaviest tests, including property tests for convergence.
-3. **Sync bundle format.** Encrypt and decrypt an item file; the atomic write protocol; `meta.json` versioning; integrity failures surfaced as errors.
-4. **Folder backend and Sync now.** The OS pickers, the settings drawer item that replaces the `ICloud` placeholder, the last-synced state and error reporting.
-5. **Conflicted copies and tombstone purging.**
-6. **Automatic sync**, once the rest has proven itself.
-7. *(Optional)* **Provider APIs** behind the same interface, if folder sync proves insufficient.
+**Version 1 — backup and restore**
 
-## 9. Questions for discussion
+1. **Change tracking.** Schema v4: `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` and `deviceId` in `vault_meta.json`. No sync, no UI. Lands first precisely so that v1 snapshots already carry what merging will need.
+2. **Snapshot bundle format.** `VACUUM INTO` export, AES-GCM sealing, format versioning, the temp-and-rename protocol, integrity failures surfaced as errors.
+3. **Folder backend, backup and restore.** The OS pickers; the settings drawer item that replaces the `ICloud` placeholder; **Back up now**, the daily upload, restore-with-warning, last-backup time and error state.
+4. **The writer role.** `writer.json`, taking over explicitly, refusing to upload when another device holds it, and snapshot retention.
 
-1. Is the per-entry-file leak (entry count and ids visible to the provider) acceptable, or does that alone decide it for whole-vault snapshots?
-2. Should turning on sync **require** a stronger passcode, given §6? If so, what rule — and what happens to a user whose existing passcode is four digits?
-3. Should sync be per-device opt-in, or does enabling it on one device enable it everywhere?
-4. How long should tombstones live? 90 days assumes no device stays offline longer than that.
-5. Is a conflicted-copy entry the right answer, or should the app offer a proper side-by-side resolution screen?
-6. Does the first version need to work on mobile, or is desktop enough to prove the design?
+**Version 2 — merging**
+
+5. **Merge engine.** Pure Dart, no I/O, heaviest tests in the project.
+6. **Per-entry files** alongside snapshots, and the switch from restore to merge.
+7. **Conflicted copies and tombstone purging.**
+8. **Automatic sync**, once merging has proven itself.
+9. *(Optional)* **Provider APIs** behind the same interface — Drive, S3, WebDAV — which is where the credential screen of §3.4 belongs.
+
+## 9. Questions still open
+
+1. **How many snapshots to keep?** Ten daily ones is roughly ten days of history; the provider's own version history may extend that, or may not exist at all.
+2. **Should turning on backup require a stronger passcode?** §6 says the passcode becomes the whole defence once ciphertext leaves the device. If yes, what rule, and what happens to someone whose passcode is four digits today?
+3. **What should a non-writer device show?** "Last restored" only, or a prompt when a newer snapshot appears in the folder?
+4. **Does v1 need mobile**, or is desktop enough to prove it? The folder picker is the only genuinely different piece.
+5. **Restore granularity** — whole vault only, or eventually picking individual entries out of a snapshot?
+6. **Tombstone retention** for v2: 90 days assumes no device stays offline longer than that.
