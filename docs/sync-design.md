@@ -218,8 +218,11 @@ writes the copy encrypted with the same key throughout.
 "PVSNAP" | version (1 byte) | nonce (12) | ciphertext | tag (16)
 ```
 
-The magic and version stay in the clear so the app can recognise a file, and refuse one
-from a newer format, without the key. Everything else is AES-GCM under the vault key, so
+The magic and version stay in the clear so the app can recognise a file without the key,
+but they are **authenticated** (passed as AES-GCM associated data). Otherwise flipping
+the version byte in a stored backup would make every restore refuse it as "from a newer
+version" — an undetectable way to deny someone their only copy. The version is judged
+*after* decryption, so a genuinely newer format and a tampered byte are told apart. Everything else is AES-GCM under the vault key, so
 a tampered or truncated snapshot fails to open rather than restoring something subtly
 wrong.
 
@@ -244,12 +247,17 @@ backup.
 
 1. List snapshots, newest first, with their timestamps.
 2. Warn plainly: *this replaces everything in the local vault*.
-3. Download, verify the authentication tag, unwrap with the passcode, write to a temporary database, **open that copy and read from it**, then swap it in atomically.
+3. Download, verify the authentication tag, unwrap with the passcode, write a candidate **beside the vault** (a rename only works within one filesystem, and it happens after the vault is closed), **open that copy, read from it, and check its schema version**, then swap it in atomically.
 4. A failed tag, a wrong passcode, or a file that opens but cannot be read aborts before anything local is touched — and leaves the user's vault open, not closed behind them.
 
 Reading from the candidate matters: SQLite is lazy, so a file of noise can "open"
 successfully and only fail later when something touches a page. Counting the rows forces
 it to read the schema and the data.
+
+Checking its schema version matters just as much: a snapshot from a newer build passes
+every other check, and sqflite would then stamp it back down to the version this build
+knows, leaving a newer schema wearing an older label — which breaks for good when that
+build catches up and re-runs its migration.
 
 **On two devices backing up the same vault:** this is the one situation a
 snapshot-shaped backup cannot survive, and v1 handles it with a warning rather than

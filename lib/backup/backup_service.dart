@@ -20,8 +20,9 @@ class BackupService {
 
   final DbHelper _db;
 
-  /// Where temporary files go. The system temp directory by default; tests
-  /// point it somewhere they can inspect.
+  /// Makes a **fresh** directory for temporary files, which this service
+  /// deletes when it is done. It must not hand back a directory holding
+  /// anything else: the whole thing is removed.
   final Directory Function() temporaryDirectory;
 
   BackupService({
@@ -56,15 +57,21 @@ class BackupService {
   Future<void> restoreSnapshot(Uint8List snapshot, Uint8List databaseKey) async {
     final database = await VaultSnapshot.open(snapshot, databaseKey);
 
-    final directory = temporaryDirectory();
-    final candidate = File('${directory.path}/restore.db');
+    // Staged **beside the vault**, not in the system temp directory: the
+    // final step renames it over the vault, and rename only works within one
+    // filesystem. On Linux /tmp is often tmpfs while the vault is under the
+    // home directory, so a temp-directory candidate would fail to move — and
+    // it would fail after the vault had already been closed, locking the
+    // user out of a vault that was never damaged.
+    final candidate = File(
+      '${await _db.vaultDirectory()}/restore-${DateTime.now().millisecondsSinceEpoch}.db.tmp',
+    );
     try {
       await writeFileAtomically(candidate.path, database);
       await _verifyOpens(candidate.path, databaseKey);
       await _db.replaceDatabaseFile(candidate.path);
     } finally {
       await _deleteQuietly(candidate);
-      await _deleteQuietly(directory);
     }
   }
 
@@ -76,22 +83,37 @@ class BackupService {
   /// decrypts but is not a usable vault cannot overwrite a working one.
   Future<void> _verifyOpens(String path, Uint8List databaseKey) async {
     Database? candidate;
+    int? schemaVersion;
     try {
       // Detached: a failed check must leave the user's own vault open and
       // untouched, not closed behind them.
       candidate = await _db.openDetached(path, databaseKey);
       await candidate.rawQuery('SELECT count(*) FROM login_entries');
       await candidate.rawQuery('SELECT count(*) FROM profile');
+      final rows = await candidate.rawQuery('PRAGMA user_version');
+      schemaVersion = rows.isEmpty ? null : rows.first.values.first as int?;
     } catch (e) {
       throw SnapshotException('This backup did not open as a vault: $e');
     } finally {
       await candidate?.close();
     }
+
+    // A snapshot from a newer build would pass every check above and then be
+    // silently stamped back down to this schema version on the next open,
+    // leaving a newer schema wearing an older label — which breaks for good
+    // when that build catches up and re-runs its migration.
+    if (schemaVersion != null && schemaVersion > DbHelper.schemaVersion) {
+      throw SnapshotException(
+        'This backup was made by a newer version of the app '
+        '(database version $schemaVersion). Update before restoring it.',
+      );
+    }
   }
 
-  /// The snapshot names to keep, newest first, given everything in the
-  /// folder. Anything beyond [keepSnapshots] is for the caller to delete.
-  static List<String> pruneList(Iterable<String> fileNames) {
+  /// The snapshot names the caller should **delete**: everything older than
+  /// the [keepSnapshots] most recent ones. Files that are not snapshots are
+  /// ignored, never deleted.
+  static List<String> snapshotsToDelete(Iterable<String> fileNames) {
     final snapshots = fileNames
         .where((name) => VaultSnapshot.timeOf(name) != null)
         .toList()

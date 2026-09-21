@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:archinfotech/models/profile.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
@@ -21,6 +22,11 @@ typedef EncryptedDatabaseOpener = Future<Database> Function(
 class DbHelper {
   static const _dbName = 'logins.db';
   static const _dbVersion = 4;
+
+  /// The schema this build understands. A snapshot claiming a newer one must
+  /// be refused: sqflite would otherwise stamp the file back down to this
+  /// version, leaving a newer schema wearing an older label.
+  static int get schemaVersion => _dbVersion;
   static const _tableName = 'login_entries';
   static const _profileTable = "profile";
 
@@ -139,7 +145,14 @@ class DbHelper {
       // upgrade it on open.
       await db.execute('PRAGMA backup.user_version = $_dbVersion');
     } finally {
-      await db.execute('DETACH DATABASE backup');
+      try {
+        await db.execute('DETACH DATABASE backup');
+      } catch (e) {
+        // Never let this replace the real failure. Leaving `backup` attached
+        // would also wedge the live connection: every later export would
+        // fail with "database backup is already in use".
+        debugPrint('Could not detach the backup database: $e');
+      }
     }
   }
 

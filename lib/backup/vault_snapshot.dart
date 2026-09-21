@@ -30,16 +30,26 @@ class VaultSnapshot {
 
   /// Seals [database] — the bytes of an encrypted database copy — under
   /// [vaultKey].
-  static Future<Uint8List> seal(Uint8List database, Uint8List vaultKey) async {
+  static Future<Uint8List> seal(
+    Uint8List database,
+    Uint8List vaultKey, {
+    /// Only tests pass this, to produce a file as a future version would.
+    int version = currentVersion,
+  }) async {
+    final header = Uint8List.fromList([...magic, version]);
     final box = await _aes.encrypt(
       database,
       secretKey: SecretKey(vaultKey),
       nonce: randomBytes(nonceLengthBytes),
+      // The header is authenticated, not encrypted. Without this, flipping
+      // the version byte in a stored backup would turn every restore into
+      // "written by a newer version" — an undetectable way to deny someone
+      // their only copy.
+      aad: header,
     );
 
     final out = BytesBuilder(copy: false)
-      ..add(magic)
-      ..addByte(currentVersion)
+      ..add(header)
       ..add(box.nonce)
       ..add(box.cipherText)
       ..add(box.mac.bytes);
@@ -62,6 +72,29 @@ class VaultSnapshot {
       throw const SnapshotException('This backup is incomplete.');
     }
 
+    final nonce = file.sublist(headerLength, headerLength + nonceLengthBytes);
+    final mac = file.sublist(file.length - macLength);
+    final cipherText = file.sublist(headerLength + nonceLengthBytes, file.length - macLength);
+
+    // Decrypt first, then judge the version. The header is authenticated, so
+    // this tells apart "genuinely written by a newer build" from "someone
+    // edited the version byte" — the latter would otherwise be an
+    // undetectable way to make every restore refuse.
+    final Uint8List clear;
+    try {
+      final decrypted = await _aes.decrypt(
+        SecretBox(cipherText, nonce: nonce, mac: Mac(mac)),
+        secretKey: SecretKey(vaultKey),
+        aad: file.sublist(0, headerLength),
+      );
+      clear = Uint8List.fromList(decrypted);
+    } on SecretBoxAuthenticationError {
+      throw const SnapshotException(
+        'This backup could not be opened: it was changed after it was '
+        'written, or it belongs to a different vault.',
+      );
+    }
+
     final version = file[magic.length];
     if (version > currentVersion) {
       throw SnapshotException(
@@ -70,22 +103,7 @@ class VaultSnapshot {
       );
     }
 
-    final nonce = file.sublist(headerLength, headerLength + nonceLengthBytes);
-    final mac = file.sublist(file.length - macLength);
-    final cipherText = file.sublist(headerLength + nonceLengthBytes, file.length - macLength);
-
-    try {
-      final clear = await _aes.decrypt(
-        SecretBox(cipherText, nonce: nonce, mac: Mac(mac)),
-        secretKey: SecretKey(vaultKey),
-      );
-      return Uint8List.fromList(clear);
-    } on SecretBoxAuthenticationError {
-      throw const SnapshotException(
-        'This backup could not be opened: it was changed after it was '
-        'written, or it belongs to a different vault.',
-      );
-    }
+    return clear;
   }
 
   /// Whether [file] looks like one of our snapshots, without needing the key.
@@ -99,8 +117,10 @@ class VaultSnapshot {
 
   /// The name a snapshot taken at [time] is stored under. Sortable, and
   /// readable enough to recognise in a file listing.
+  /// Milliseconds are kept: "Back up now" tapped twice in the same second
+  /// must not overwrite the earlier snapshot.
   static String fileNameFor(DateTime time) {
-    final stamp = time.toUtc().toIso8601String().replaceAll(':', '-').split('.').first;
+    final stamp = time.toUtc().toIso8601String().replaceAll(':', '-').replaceAll('.', '-');
     return 'vault-$stamp.bin';
   }
 
@@ -109,15 +129,17 @@ class VaultSnapshot {
   static DateTime? timeOf(String fileName) {
     final match = RegExp(r'^vault-(.+)\.bin$').firstMatch(fileName);
     if (match == null) return null;
-    final text = match.group(1)!.replaceAll('-', ':');
-    // The date's own dashes were turned into colons too; put them back.
-    final fixed = text.replaceFirstMapped(
-      RegExp(r'^(\d{4}):(\d{2}):(\d{2})'),
-      (m) => '${m[1]}-${m[2]}-${m[3]}',
-    );
-    // Snapshots are named in UTC; without the Z this would be read as local
+    // vault-2026-10-03T14-02-30-123Z.bin -> 2026-10-03T14:02:30.123Z
+    final match2 = RegExp(
+      r'^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$',
+    ).firstMatch(match.group(1)!);
+    if (match2 == null) return null;
+    final g = match2.groups([1, 2, 3, 4, 5, 6, 7]).map((e) => e!).toList();
+    // Parsed as UTC explicitly: without the Z this would be read as local
     // time and every timestamp would shift by the time zone offset.
-    return DateTime.tryParse('${fixed}Z');
+    return DateTime.tryParse(
+      '${g[0]}-${g[1]}-${g[2]}T${g[3]}:${g[4]}:${g[5]}.${g[6]}Z',
+    );
   }
 }
 
