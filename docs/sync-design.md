@@ -299,6 +299,11 @@ entry and the other edited it, asking the user to choose means offering to resur
 something they deliberately removed. The deletion wins if it is not older, and the
 edited version is still in a snapshot if they want it back.
 
+**Two deletions are agreement, not a conflict.** Tombstones made on two devices differ
+in device and timestamp, so a naive comparison calls them a conflict — and since a
+conflict is resolved by keeping both, an entry deleted on *both* devices would reappear,
+and be re-reported on every later pass. Deleting something twice must mean it is gone.
+
 **An entry only one side has is never a deletion.** It is news, and it is uploaded or
 applied. This is what makes an empty or unreadable remote listing incapable of emptying
 a vault: deletions arrive only as tombstones, never as absence.

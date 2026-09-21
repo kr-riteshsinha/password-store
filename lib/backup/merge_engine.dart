@@ -133,7 +133,10 @@ class MergePlan {
 MergePlan planMerge({
   required Iterable<ItemVersion> local,
   required Iterable<ItemVersion> remote,
-  Map<String, int> lastSynced = const {},
+  // Required, not defaulted: a caller that forgot it would compile, pass
+  // every test, and silently resolve every concurrent edit by discarding one
+  // side. Callers with genuinely no history pass `const {}` and mean it.
+  required Map<String, int> lastSynced,
 }) {
   final localById = {for (final item in local) item.id: item};
   final remoteById = {for (final item in remote) item.id: item};
@@ -203,6 +206,13 @@ MergePlan planMerge({
 /// "changed" would mean resurrecting entries they deliberately removed — and
 /// the edit is still in a snapshot if they want it back.
 bool _deletionSettlesIt(ItemVersion mine, ItemVersion theirs) {
+  // Both deleted is agreement, not a conflict — even though the tombstones
+  // differ in device and timestamp. Calling it a conflict would make the
+  // caller keep both, so an entry deleted on two devices would reappear:
+  // exactly what the deletion rule exists to prevent. It would also never
+  // settle, being re-reported on every later pass.
+  if (mine.deleted && theirs.deleted) return true;
+
   if (mine.deleted == theirs.deleted) return false;
   final deletion = mine.deleted ? mine : theirs;
   final edit = mine.deleted ? theirs : mine;
