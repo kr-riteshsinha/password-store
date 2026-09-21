@@ -63,7 +63,7 @@ flutter run -d macos      # or: flutter run
 
 `main` is protected: nobody pushes to it directly, not even the maintainer, and it can't be force-pushed or deleted. Every change arrives through a pull request.
 
-**The maintainer merges.** Pull requests from contributors need an approving review before they can be merged, and a new commit dismisses an existing approval. Please don't expect to merge your own pull request, even if you have write access.
+**The maintainer merges.** Only the repository owner can merge to `main`, so please don't expect to merge your own pull request, even if you have write access. What gets a pull request merged is a green `analyze-and-test` run, a branch up to date with `main`, and a review from the maintainer.
 
 ### Code style
 
