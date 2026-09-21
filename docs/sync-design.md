@@ -205,8 +205,23 @@ one-directional upload from a single writer has no merge to get wrong.
 ```
 
 **Producing a snapshot.** Never upload `logins.db` itself (§3.1). The writer runs
-`VACUUM INTO` (or `sqlcipher_export`) into a temporary file while the vault stays open,
-seals that, uploads it, then deletes the temporary copy.
+**`sqlcipher_export`** into a temporary file while the vault stays open, seals that,
+uploads it, then deletes the temporary copy.
+
+Not `VACUUM INTO`: with SQLCipher that writes a **plaintext** database, so the whole
+vault would exist unencrypted on disk for as long as the backup takes. `sqlcipher_export`
+writes the copy encrypted with the same key throughout.
+
+**A sealed snapshot is:**
+
+```
+"PVSNAP" | version (1 byte) | nonce (12) | ciphertext | tag (16)
+```
+
+The magic and version stay in the clear so the app can recognise a file, and refuse one
+from a newer format, without the key. Everything else is AES-GCM under the vault key, so
+a tampered or truncated snapshot fails to open rather than restoring something subtly
+wrong.
 
 **Writing a file, on every platform**
 
@@ -229,8 +244,12 @@ backup.
 
 1. List snapshots, newest first, with their timestamps.
 2. Warn plainly: *this replaces everything in the local vault*.
-3. Download, verify the authentication tag, unwrap with the passcode, write to a temporary database, then swap it in atomically.
-4. A failed tag or a wrong passcode aborts before anything local is touched.
+3. Download, verify the authentication tag, unwrap with the passcode, write to a temporary database, **open that copy and read from it**, then swap it in atomically.
+4. A failed tag, a wrong passcode, or a file that opens but cannot be read aborts before anything local is touched — and leaves the user's vault open, not closed behind them.
+
+Reading from the candidate matters: SQLite is lazy, so a file of noise can "open"
+successfully and only fail later when something touches a page. Counting the rows forces
+it to read the schema and the data.
 
 **On two devices backing up the same vault:** this is the one situation a
 snapshot-shaped backup cannot survive, and v1 handles it with a warning rather than

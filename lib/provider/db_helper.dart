@@ -5,6 +5,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 
+import '../backup/atomic_file.dart';
 import '../crypto/vault_keys.dart';
 import 'platform_database.dart';
 import '../models/login_entry.dart';
@@ -52,31 +53,14 @@ class DbHelper {
   /// Opens the SQLCipher-encrypted vault with [databaseKey]. The key comes
   /// from unwrapping it with the passcode, so a wrong passcode never gets
   /// this far.
-  Future<Database> openEncrypted(Uint8List databaseKey) async {
+  Future<Database> openEncrypted(Uint8List databaseKey) async =>
+      openEncryptedAt(await databaseFile(), databaseKey);
+
+  /// Opens an encrypted database at [path] **as the vault**, closing whatever
+  /// was open before.
+  Future<Database> openEncryptedAt(String path, Uint8List databaseKey) async {
     await close();
-    final path = await databaseFile();
-    final passphrase = VaultKeys.toPassphrase(databaseKey);
-    final options = OpenDatabaseOptions(
-      version: _dbVersion,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
-
-    final opener = encryptedOpenerOverride;
-    final db = opener != null
-        ? await opener(path, passphrase, options)
-        // Windows and Linux have no plugin implementation, so they open the
-        // bundled SQLCipher through FFI instead (ISSUES.md #27).
-        : usesFfiDatabase
-            ? await openEncryptedWithFfi(path, passphrase, options)
-            : await sqlcipher.openDatabase(
-                path,
-                password: passphrase,
-                version: options.version,
-                onCreate: options.onCreate,
-                onUpgrade: options.onUpgrade,
-              );
-
+    final db = await _open(path, databaseKey, readOnly: false);
     try {
       await assertSqlCipher(db);
     } catch (_) {
@@ -87,6 +71,85 @@ class DbHelper {
     }
     _db = db;
     return db;
+  }
+
+  /// Opens an encrypted database at [path] **without touching the vault**.
+  ///
+  /// Backup uses this to check a candidate snapshot before restoring it: a
+  /// failed check must leave the user's vault open and untouched. The caller
+  /// closes the returned database.
+  Future<Database> openDetached(
+    String path,
+    Uint8List databaseKey, {
+    bool readOnly = true,
+  }) =>
+      _open(path, databaseKey, readOnly: readOnly);
+
+  Future<Database> _open(
+    String path,
+    Uint8List databaseKey, {
+    required bool readOnly,
+  }) async {
+    final passphrase = VaultKeys.toPassphrase(databaseKey);
+    final options = readOnly
+        // No version, create or upgrade hooks: checking a snapshot must never
+        // migrate or create anything.
+        ? OpenDatabaseOptions(readOnly: true)
+        : OpenDatabaseOptions(
+            version: _dbVersion,
+            onCreate: _onCreate,
+            onUpgrade: _onUpgrade,
+          );
+
+    final opener = encryptedOpenerOverride;
+    return opener != null
+        ? await opener(path, passphrase, options)
+        // Windows and Linux have no plugin implementation, so they open the
+        // bundled SQLCipher through FFI instead (ISSUES.md #27).
+        : usesFfiDatabase
+            ? await openEncryptedWithFfi(path, passphrase, options)
+            : await sqlcipher.openDatabase(
+                path,
+                password: passphrase,
+                readOnly: options.readOnly,
+                version: options.version,
+                onCreate: options.onCreate,
+                onUpgrade: options.onUpgrade,
+              );
+  }
+
+  /// Writes a consistent, still-encrypted copy of the vault to [path].
+  ///
+  /// Uses `sqlcipher_export`, **not** `VACUUM INTO`: with SQLCipher the
+  /// latter writes a *plaintext* database, so the vault would exist
+  /// unencrypted on disk, however briefly. The copy here is encrypted with
+  /// the same key throughout.
+  ///
+  /// The vault stays open and usable while this runs; the copy is a snapshot
+  /// of the moment it started.
+  Future<void> exportEncryptedCopy(String path, Uint8List databaseKey) async {
+    final db = await database;
+    final passphrase = VaultKeys.toPassphrase(databaseKey).replaceAll("'", "''");
+    final escapedPath = path.replaceAll("'", "''");
+
+    await db.execute("ATTACH DATABASE '$escapedPath' AS backup KEY '$passphrase'");
+    try {
+      await db.rawQuery("SELECT sqlcipher_export('backup')");
+      // The copy needs the same schema version, or the app would try to
+      // upgrade it on open.
+      await db.execute('PRAGMA backup.user_version = $_dbVersion');
+    } finally {
+      await db.execute('DETACH DATABASE backup');
+    }
+  }
+
+  /// Replaces the vault with the database at [path], atomically.
+  ///
+  /// The vault is closed first, the file is renamed over it, and the caller
+  /// reopens. A crash mid-restore leaves either the old vault or the new one.
+  Future<void> replaceDatabaseFile(String path) async {
+    await close();
+    await replaceFileAtomically(await databaseFile(), path);
   }
 
   /// Locks the vault by closing the database and dropping the key with it.
