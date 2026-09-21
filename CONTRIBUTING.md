@@ -57,6 +57,13 @@ flutter run -d macos      # or: flutter run
    flutter test
    ```
 4. Open a pull request against `main` and fill in the template.
+5. Wait for CI. `analyze-and-test` has to pass before a pull request can be merged.
+
+### Who merges
+
+`main` is protected: nobody pushes to it directly, not even the maintainer, and it can't be force-pushed or deleted. Every change arrives through a pull request.
+
+**The maintainer merges.** Only the repository owner can merge to `main`, so please don't expect to merge your own pull request, even if you have write access. What gets a pull request merged is a green `analyze-and-test` run, a branch up to date with `main`, and a review from the maintainer.
 
 ### Code style
 
@@ -67,7 +74,7 @@ flutter run -d macos      # or: flutter run
 ### Tests
 
 - Unit tests live in `test/models` and `test/provider`. Add or update tests for any logic you change.
-- Database tests run SQLite on your computer through `sqflite_common_ffi`. Call `initTestDatabase()` from `test/helpers/test_database.dart` in `setUpAll`, and `clearTables()` in `setUp`.
+- Database tests run SQLite on your computer through `sqflite_common_ffi`, against the vault's real SQLCipher encryption. Call `initEncryptedTestDatabase()` from `test/helpers/test_database.dart` in `setUpAll`, and `clearTables()` or `resetVault()` in `setUp`. You need SQLCipher installed: `brew install sqlcipher` on macOS, `sudo apt-get install libsqlcipher-dev` on Linux (`./install.sh` does this for you).
 - Tests for known bugs are marked `skip: 'ISSUES.md #N ...'`. If your PR fixes issue #N, remove that `skip`, check the test passes, and mark the issue fixed in `ISSUES.md`.
 
 ### Commit messages
