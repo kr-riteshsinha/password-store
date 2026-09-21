@@ -300,11 +300,39 @@ Each becomes its own work item. Nothing touches the user's data until phase 3.
 merging is missing, and merging deletes it. A warning in phase 3 covers the same ground
 for the one or two releases it matters.
 
-## 9. Questions still open
+## 9. Decisions and what is still open
 
-1. **How many snapshots to keep?** Ten daily ones is roughly ten days of history; the provider's own version history may extend that, or may not exist at all.
-2. **Should turning on backup require a stronger passcode?** §6 says the passcode becomes the whole defence once ciphertext leaves the device. If yes, what rule, and what happens to someone whose passcode is four digits today?
-3. **What should a non-writer device show?** "Last restored" only, or a prompt when a newer snapshot appears in the folder?
-4. **Does v1 need mobile**, or is desktop enough to prove it? The folder picker is the only genuinely different piece.
-5. **Restore granularity** — whole vault only, or eventually picking individual entries out of a snapshot?
-6. **Tombstone retention** for v2: 90 days assumes no device stays offline longer than that.
+### DECIDED 4 — Keep ten snapshots
+
+The writer keeps the ten most recent snapshots and prunes the oldest. That is roughly
+ten days of history at one upload a day, enough to recover from a mistake noticed within
+a week or so, and small enough that the folder stays tidy. The provider's own version
+history may extend this, but nothing depends on that.
+
+### DECIDED 5 — Backup requires a passcode of at least 8 characters
+
+§6 is the reason: on the device, an attacker needs the device *and* the passcode. Once
+ciphertext sits in someone's cloud storage, the passcode is the only thing between an
+attacker and the vault, and a four-digit one falls to an offline attack even at Argon2id
+cost.
+
+So:
+
+- Turning backup on requires a passcode of **at least 8 characters**.
+- A user whose passcode is shorter is asked to change it first, in the backup flow, and cannot enable backup until they do. Changing it only rewraps the key, so it is instant and touches no entries.
+- The local minimum for a new vault stays at 4 for now (`lib/utils/passcode_rules.dart`). Raising it for everyone is a separate decision, and worth taking once quick unlock (#37) removes the daily cost of typing a long passcode.
+- The requirement is checked when backup is enabled **and** re-checked if the passcode is later changed to something shorter: shortening it below 8 while backup is on must warn, and either block or turn backup off.
+
+### DECIDED 6 — Desktop and mobile together in phase 3
+
+Phase 3 ships the directory picker on desktop *and* the iOS document picker and Android
+storage access framework. Mobile is where a lost device is most likely, so backup that
+only works on a laptop misses the point. The extra work is the pickers and persisting a
+security-scoped bookmark or tree URI across launches; everything behind the backend
+interface is shared.
+
+### Still open
+
+1. **What should a device that is not the writer show?** "Last restored" only, or a prompt when a newer snapshot appears in the folder?
+2. **Restore granularity** — whole vault only, or eventually picking individual entries out of a snapshot?
+3. **Tombstone retention** for merging: 90 days assumes no device stays offline longer than that.
