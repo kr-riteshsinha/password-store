@@ -8,10 +8,12 @@ import 'package:provider/provider.dart';
 
 
 
-void main() {
-  // Windows and Linux need sqflite pointed at the FFI implementation before
-  // anything opens the database (ISSUES.md #27).
-  initPlatformDatabase();
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Windows and Linux need sqflite pointed at the FFI implementation, and at
+  // a real per-user directory, before anything opens the database
+  // (ISSUES.md #27).
+  await initPlatformDatabase();
   runApp(
 
       MultiProvider(

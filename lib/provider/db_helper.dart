@@ -77,7 +77,14 @@ class DbHelper {
                 onUpgrade: options.onUpgrade,
               );
 
-    await assertSqlCipher(db);
+    try {
+      await assertSqlCipher(db);
+    } catch (_) {
+      // Otherwise the handle leaks: _db is still null, so close() cannot
+      // reach it, and on Windows the open file blocks replacing the vault.
+      await db.close();
+      rethrow;
+    }
     _db = db;
     return db;
   }

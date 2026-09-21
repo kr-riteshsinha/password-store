@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:archinfotech/provider/db_helper.dart';
 import 'package:archinfotech/provider/platform_database.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../helpers/test_database.dart';
 
@@ -17,12 +18,17 @@ void main() {
     expect(usesFfiDatabase, Platform.isWindows || Platform.isLinux);
   });
 
-  test('initPlatformDatabase can be called more than once', () {
-    initPlatformDatabase();
-    initPlatformDatabase();
+  test('initPlatformDatabase does nothing on plugin platforms', () async {
+    // Deliberately not exercised on Windows or Linux: there it would replace
+    // the factory and temp database path the harness installed, and the
+    // default factory runs SQLite in a background isolate where the
+    // SQLCipher override does not apply.
+    if (usesFfiDatabase) return;
 
-    // Still usable afterwards.
-    expect(usesFfiDatabase, isA<bool>());
+    final before = databaseFactory;
+    await initPlatformDatabase();
+
+    expect(databaseFactory, same(before));
   });
 
   test('assertSqlCipher passes for a vault opened with a key', () async {

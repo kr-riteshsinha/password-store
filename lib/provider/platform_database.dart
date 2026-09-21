@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Whether this platform opens the database through FFI rather than the
@@ -10,14 +10,22 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// implementations, so Windows and Linux go through `sqflite_common_ffi`
 /// against the SQLCipher library bundled by `sqlcipher_flutter_libs`
 /// (ISSUES.md #27).
-bool get usesFfiDatabase => !kIsWeb && (Platform.isWindows || Platform.isLinux);
+bool get usesFfiDatabase => Platform.isWindows || Platform.isLinux;
 
-/// Points sqflite at the FFI implementation on desktop. Call once, before
-/// anything touches the database.
-void initPlatformDatabase() {
+/// Points sqflite at the FFI implementation on desktop, and at a real
+/// per-user directory. Call once, before anything touches the database.
+///
+/// Without the explicit path, `sqflite_common_ffi` defaults to
+/// `.dart_tool/sqflite_common_ffi/databases` **relative to the working
+/// directory**: the vault would differ depending on where the app was
+/// launched from, and would fail outright in a read-only directory such as
+/// Program Files.
+Future<void> initPlatformDatabase() async {
   if (!usesFfiDatabase) return;
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
+  await databaseFactory
+      .setDatabasesPath((await getApplicationSupportDirectory()).path);
 }
 
 /// Opens an encrypted database through FFI.
@@ -30,14 +38,14 @@ Future<Database> openEncryptedWithFfi(
   String passphrase,
   OpenDatabaseOptions options,
 ) {
+  // Quotes are doubled even though the passphrase is hex today: this is the
+  // one statement that decides whether the vault is encrypted at all.
+  final quoted = passphrase.replaceAll("'", "''");
   return databaseFactoryFfi.openDatabase(
     path,
-    options: OpenDatabaseOptions(
-      version: options.version,
-      onCreate: options.onCreate,
-      onUpgrade: options.onUpgrade,
-      onConfigure: (db) => db.execute("PRAGMA key = '$passphrase'"),
-    ),
+    // Keeps whatever else the caller set (onOpen, readOnly and the rest)
+    // rather than silently dropping it on this platform only.
+    options: options..onConfigure = (db) => db.execute("PRAGMA key = '$quoted'"),
   );
 }
 
