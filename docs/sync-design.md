@@ -238,13 +238,14 @@ backup.
 
 **Daily upload (writer only)**
 
-1. Check `meta.json`: if `vaultId` differs, stop — this folder holds a different vault.
+1. Check `meta.json`: if `vaultId` differs, stop — this folder holds a different vault. **If it cannot be read at all, also stop**: backing up overwrites that file, and it holds the only key that opens the snapshots already there. A cloud placeholder that has not downloaded yet looks exactly like this.
 2. Check `last-backup.json`: if the last upload came from another device, warn that two devices are backing up the same vault and that the older copy's edits will be lost. Upload anyway if the user confirms.
 3. Export, seal, upload, prune to the last N snapshots.
 4. Write `last-backup.json`, record the time locally, and show it in the drawer.
 
 **Restore (any device, always manual)**
 
+0. **The key comes from the folder, not from the open vault.** A snapshot is sealed with the database key of the vault that made it, which is a different random key on every device. The app asks for the passcode, unwraps the folder's own `meta.json`, and restores with *that* key — then adopts that `meta.json` locally, or the passcode would no longer open the restored vault.
 1. List snapshots, newest first, with their timestamps.
 2. Warn plainly: *this replaces everything in the local vault*.
 3. Download, verify the authentication tag, unwrap with the passcode, write a candidate **beside the vault** (a rename only works within one filesystem, and it happens after the vault is closed), **open that copy, read from it, and check its schema version**, then swap it in atomically.

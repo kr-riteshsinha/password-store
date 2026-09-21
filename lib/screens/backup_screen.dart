@@ -7,6 +7,8 @@ import '../backup/backup_manager.dart';
 import '../backup/backup_settings.dart';
 import '../provider/LoadingProvider.dart';
 import '../provider/login_entry_provider.dart';
+import '../utils/loadingOverlay.dart';
+import 'password_auth.dart';
 
 /// Backing the vault up to a folder the user chose — the settings drawer's
 /// former `ICloud` placeholder.
@@ -31,6 +33,20 @@ class _BackupScreenState extends State<BackupScreen> {
   String? _error;
   bool _loaded = false;
 
+  /// Stops a second tap starting a second backup or restore. Both attach the
+  /// same database, so two at once collide on the connection.
+  bool _busy = false;
+
+  /// Lives as long as the screen: disposing it when the dialog closes would
+  /// pull it out from under the text field still fading out.
+  final _passcodeController = TextEditingController();
+
+  @override
+  void dispose() {
+    _passcodeController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -44,8 +60,17 @@ class _BackupScreenState extends State<BackupScreen> {
     String? error;
 
     if (path != null) {
+      final folder = LocalBackupFolder(path);
       try {
-        snapshots = await _manager.listSnapshots(LocalBackupFolder(path));
+        if (!await folder.isAvailable()) {
+          // Not the same as an empty folder: telling someone "no backups"
+          // when the drive is simply unplugged reads as "your backups are
+          // gone".
+          error = 'This folder cannot be reached right now. It may be on a '
+              'drive that is disconnected, or it may have moved.';
+        } else {
+          snapshots = await _manager.listSnapshots(folder);
+        }
       } catch (e) {
         error = 'That folder could not be read: $e';
       }
@@ -67,14 +92,23 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _chooseFolder() async {
+    if (_busy) return;
     final provider = context.read<LoginEntryProvider>();
+    final loading = context.read<LoadingProvider>();
 
     // The passcode is what protects a backup once it leaves the device, so
     // check it is long enough before anything is written anywhere.
     final passcode = await _askForPasscode();
     if (passcode == null) return;
 
-    if (!await provider.passcodeIsCorrect(passcode)) {
+    // Checking it costs a full Argon2id derivation, which freezes the UI for
+    // a moment; the overlay says why.
+    final correct = await loading.whileLoading(
+      () => provider.passcodeIsCorrect(passcode),
+      message: 'Checking your passcode…',
+    );
+    if (!mounted) return;
+    if (!correct) {
       _say('That passcode is not correct.');
       return;
     }
@@ -101,6 +135,7 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _backUpNow() async {
+    if (_busy) return;
     final provider = context.read<LoginEntryProvider>();
     final loading = context.read<LoadingProvider>();
     final path = _folderPath;
@@ -118,10 +153,13 @@ class _BackupScreenState extends State<BackupScreen> {
       folder,
       provider.deviceId ?? '',
     );
+    if (!mounted) return;
     if (warning != null && !await _confirm('Back up from this device?', warning)) {
       return;
     }
+    if (!mounted) return;
 
+    setState(() => _busy = true);
     try {
       await loading.whileLoading(() async {
         final info = await _manager.backUp(
@@ -129,7 +167,7 @@ class _BackupScreenState extends State<BackupScreen> {
           databaseKey: key,
           meta: meta,
           deviceId: provider.deviceId ?? '',
-          deviceName: await _deviceName(),
+          deviceName: await _deviceName(provider),
         );
         await _settings.setLastBackupAt(info.takenAt);
       }, message: 'Backing up…');
@@ -137,15 +175,18 @@ class _BackupScreenState extends State<BackupScreen> {
       if (mounted) _say('Backed up.');
     } catch (e) {
       if (mounted) _say('Backup failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _restore(SnapshotInfo snapshot) async {
+    if (_busy) return;
     final provider = context.read<LoginEntryProvider>();
     final loading = context.read<LoadingProvider>();
     final path = _folderPath;
-    final key = provider.databaseKey;
-    if (path == null || key == null) return;
+    if (path == null) return;
+    final folder = LocalBackupFolder(path);
 
     final confirmed = await _confirm(
       'Restore this backup?',
@@ -154,26 +195,60 @@ class _BackupScreenState extends State<BackupScreen> {
           'device, is lost.',
       confirmLabel: 'Replace my vault',
     );
-    if (!confirmed) return;
+    if (!confirmed || !mounted) return;
 
+    // The passcode, not the open vault's key: a snapshot is sealed with the
+    // key of the vault it came from, which is a different random key on
+    // every device. The folder's own meta.json holds the wrapping this
+    // passcode opens.
+    final passcode = await _askForPasscode(
+      reason: 'Enter the passcode of the vault this backup came from.',
+    );
+    if (passcode == null || !mounted) return;
+
+    setState(() => _busy = true);
     try {
+      final restoredMeta = await _manager.remoteMeta(folder);
+      if (restoredMeta == null) {
+        _say('This folder has no vault details, so the backup cannot be opened.');
+        return;
+      }
+
+      final key = await loading.whileLoading(
+        () => _manager.keyForFolder(folder, passcode),
+        message: 'Checking your passcode…',
+      );
+      if (key == null) {
+        if (mounted) _say('That passcode does not open this backup.');
+        return;
+      }
+
       await loading.whileLoading(() async {
         await _manager.restore(
-          folder: LocalBackupFolder(path),
+          folder: folder,
           fileName: snapshot.fileName,
           databaseKey: key,
         );
+        // The restored vault is encrypted with the backup's key, so the
+        // local wrapping has to be replaced or the passcode would no longer
+        // open it.
+        await provider.adoptMeta(restoredMeta);
       }, message: 'Restoring…');
     } catch (e) {
       if (mounted) _say('Restore failed: $e');
       return;
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
 
     // The vault is closed after a restore, so the user unlocks the restored
     // one rather than carrying on with a vault that is no longer open.
     await provider.lock();
     if (!mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const PasscodeLoginScreen()),
+      (route) => false,
+    );
     _say('Restored. Unlock the vault to continue.');
   }
 
@@ -190,21 +265,21 @@ class _BackupScreenState extends State<BackupScreen> {
     await _load();
   }
 
-  Future<String?> _askForPasscode() async {
-    final controller = TextEditingController();
-    final passcode = await showDialog<String>(
+  Future<String?> _askForPasscode({
+    String reason = 'Your backups are protected by this passcode and nothing else.',
+  }) async {
+    _passcodeController.clear();
+    return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm your passcode'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Your backups are protected by this passcode and nothing else.',
-            ),
+            Text(reason),
             const SizedBox(height: 12),
             TextField(
-              controller: controller,
+              controller: _passcodeController,
               obscureText: true,
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Passcode'),
@@ -215,14 +290,12 @@ class _BackupScreenState extends State<BackupScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(context, _passcodeController.text),
             child: const Text('Continue'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    return passcode;
   }
 
   Future<void> _explain(String message) => showDialog<void>(
@@ -263,8 +336,8 @@ class _BackupScreenState extends State<BackupScreen> {
       ) ??
       false;
 
-  Future<String> _deviceName() async =>
-      (await context.read<LoginEntryProvider>().getProfile())?.name ?? 'this device';
+  Future<String> _deviceName(LoginEntryProvider provider) async =>
+      (await provider.getProfile())?.name ?? 'this device';
 
   String _when(DateTime time) {
     final local = time.toLocal();
@@ -277,6 +350,7 @@ class _BackupScreenState extends State<BackupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      floatingActionButton: const LoadingOverlay(),
       appBar: AppBar(
         title: const Text(
           'Backup',
@@ -333,7 +407,7 @@ class _BackupScreenState extends State<BackupScreen> {
           leading: const Icon(Icons.folder_open),
           title: const Text('Choose a backup folder'),
           subtitle: const Text('Pick a folder your cloud storage already syncs'),
-          onTap: _chooseFolder,
+          onTap: _busy ? null : _chooseFolder,
         ),
       );
 
@@ -354,17 +428,17 @@ class _BackupScreenState extends State<BackupScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton.icon(
-                  onPressed: _backUpNow,
+                  onPressed: _busy ? null : _backUpNow,
                   icon: const Icon(Icons.backup),
                   label: const Text('Back up now'),
                 ),
                 TextButton.icon(
-                  onPressed: _chooseFolder,
+                  onPressed: _busy ? null : _chooseFolder,
                   icon: const Icon(Icons.drive_file_move),
                   label: const Text('Change folder'),
                 ),
                 TextButton.icon(
-                  onPressed: _forgetFolder,
+                  onPressed: _busy ? null : _forgetFolder,
                   icon: const Icon(Icons.link_off),
                   label: const Text('Stop'),
                 ),
@@ -378,7 +452,7 @@ class _BackupScreenState extends State<BackupScreen> {
         leading: const Icon(Icons.history),
         title: Text(_when(snapshot.takenAt)),
         trailing: TextButton(
-          onPressed: () => _restore(snapshot),
+          onPressed: _busy ? null : () => _restore(snapshot),
           child: const Text('Restore'),
         ),
       );

@@ -6,6 +6,7 @@ import 'package:archinfotech/backup/backup_folder.dart';
 import 'package:archinfotech/backup/backup_manager.dart';
 import 'package:archinfotech/backup/backup_service.dart';
 import 'package:archinfotech/backup/vault_snapshot.dart';
+import 'package:archinfotech/crypto/vault_keys.dart';
 import 'package:archinfotech/crypto/vault_meta.dart';
 import 'package:archinfotech/models/login_entry.dart';
 import 'package:archinfotech/provider/db_helper.dart';
@@ -103,22 +104,80 @@ void main() {
     });
 
     test('a backup restores onto a device that has never seen the vault', () async {
-      await db.insertEntry(_entry('1'));
-      final info = await backUp();
+      // The other device's vault has its own random database key — reusing
+      // this device's key would make the test pass while the app failed.
+      // The key and the meta must be the pair that belong together: the meta
+      // wraps exactly the key the vault is encrypted with.
+      final theirVault = await createVaultKeys(
+        passcode: '12345678',
+        recoveryAnswer: 'Blue',
+        newParams: cheapParams,
+      );
+      final theirKey = theirVault.databaseKey;
+      final theirMeta = theirVault.meta;
 
-      // Wipe everything local, as a new device would be.
+      await resetVault();
+      await db.openEncrypted(theirKey);
+      await db.insertEntry(_entry('1'));
+      await manager.backUp(
+        folder: folder,
+        databaseKey: theirKey,
+        meta: theirMeta,
+        deviceId: 'device-b',
+      );
+      final theirSnapshot = (await manager.listSnapshots(folder)).single;
+
+      // This device: a different vault entirely.
       await resetVault();
       await openTestVault();
       expect(await db.fetchEntries(), isEmpty);
 
+      // The key comes from the folder's own meta.json, unwrapped with the
+      // passcode — never from the local vault.
+      final key = await manager.keyForFolder(folder, '12345678');
+      expect(key, isNotNull);
       await manager.restore(
         folder: folder,
-        fileName: info.fileName,
-        databaseKey: testDatabaseKey,
+        fileName: theirSnapshot.fileName,
+        databaseKey: key!,
       );
-      await openTestVault();
+      await db.openEncrypted(key);
 
       expect((await db.fetchEntries()).single.id, '1');
+    });
+
+    test('the local key cannot open another device\'s backup', () async {
+      final theirKey = VaultKeys.newDatabaseKey();
+      await resetVault();
+      await db.openEncrypted(theirKey);
+      await db.insertEntry(_entry('1'));
+      await manager.backUp(
+        folder: folder,
+        databaseKey: theirKey,
+        meta: meta,
+        deviceId: 'device-b',
+      );
+      final theirSnapshot = (await manager.listSnapshots(folder)).single;
+
+      await resetVault();
+      await openTestVault();
+
+      // This is what the screen used to do, and why restore could never have
+      // worked across devices.
+      await expectLater(
+        manager.restore(
+          folder: folder,
+          fileName: theirSnapshot.fileName,
+          databaseKey: testDatabaseKey,
+        ),
+        throwsA(isA<SnapshotException>()),
+      );
+    });
+
+    test('the wrong passcode yields no key for the folder', () async {
+      await backUp();
+
+      expect(await manager.keyForFolder(folder, 'wrong-passcode'), isNull);
     });
 
     test('keeps ten snapshots and deletes the oldest', () async {
@@ -158,6 +217,31 @@ void main() {
   });
 
   group('the wrong folder', () {
+    test('a folder whose details cannot be read is refused', () async {
+      // A cloud placeholder that has not downloaded yet looks like this.
+      // Carrying on would overwrite meta.json — the only key that opens the
+      // snapshots already there.
+      await backUp();
+      await folder.write(
+        BackupLayout.meta,
+        Uint8List.fromList('not json'.codeUnits),
+      );
+
+      await expectLater(
+        manager.checkVault(folder, meta.vaultId),
+        throwsA(isA<BackupFolderException>()),
+      );
+    });
+
+    test('a vault with no id of its own is refused', () async {
+      await backUp();
+
+      await expectLater(
+        manager.checkVault(folder, null),
+        throwsA(isA<BackupFolderException>()),
+      );
+    });
+
     test('another vault\'s folder is refused', () async {
       await backUp();
       final otherVault = meta.copyWith(vaultId: newVaultId());

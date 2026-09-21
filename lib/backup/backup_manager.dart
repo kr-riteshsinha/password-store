@@ -68,9 +68,26 @@ class BackupManager {
   Future<void> checkVault(BackupFolder folder, String? vaultId) async {
     if (!await folder.exists(BackupLayout.meta)) return;
 
+    // Fails closed. Backing up overwrites meta.json, and that file holds the
+    // only key that can open the snapshots already in the folder — so
+    // "cannot tell whose folder this is" has to mean stop, not carry on. An
+    // unreadable meta.json is common enough: a cloud placeholder that has
+    // not downloaded yet, or a permission that has lapsed.
     final meta = await _readMeta(folder);
-    final theirs = meta?.vaultId;
-    if (theirs != null && vaultId != null && theirs != vaultId) {
+    if (meta == null) {
+      throw const BackupFolderException(
+        'This folder holds a backup whose details could not be read, so it '
+        'is not safe to write here. If it is stored in the cloud, wait for '
+        'it to download and try again.',
+      );
+    }
+    if (vaultId == null) {
+      throw const BackupFolderException(
+        'This vault has no id yet, so it cannot be told apart from the one '
+        'already in this folder. Unlock the vault again and retry.',
+      );
+    }
+    if (meta.vaultId != vaultId) {
       throw const BackupFolderException(
         'This folder already holds backups of a different vault. '
         'Choose another folder.',
@@ -166,10 +183,25 @@ class BackupManager {
     return snapshots;
   }
 
+  /// Unwraps the key that opens the snapshots in [folder], using the
+  /// passcode.
+  ///
+  /// **Not the local vault's key.** A snapshot is sealed with the database
+  /// key of the vault it came from, which is a different random key on every
+  /// device until one restores from the other. Restoring with the local key
+  /// would fail on any backup this device did not write.
+  Future<Uint8List?> keyForFolder(BackupFolder folder, String passcode) async {
+    final meta = await _readMeta(folder);
+    if (meta == null) return null;
+    return unlockWithPasscode(meta, passcode);
+  }
+
   /// Replaces the local vault with a snapshot from the folder.
   ///
-  /// The vault is left closed; the caller unlocks it again. Everything that
-  /// can fail does so before the local vault is touched.
+  /// [databaseKey] must come from [keyForFolder], not from the open vault.
+  /// The vault is left closed; the caller unlocks it again with the same
+  /// passcode. Everything that can fail does so before the local vault is
+  /// touched.
   Future<void> restore({
     required BackupFolder folder,
     required String fileName,
@@ -224,6 +256,12 @@ class BackupManager {
   Future<void> _prune(BackupFolder folder) async {
     final names = await folder.list(BackupLayout.snapshots);
     for (final name in BackupService.snapshotsToDelete(names)) {
+      await folder.delete(BackupLayout.snapshotPath(name));
+    }
+    // A crash between writing and renaming leaves a .tmp behind. Nothing
+    // else would ever remove it, and it would be synced to the user's cloud
+    // storage forever.
+    for (final name in names.where((n) => n.endsWith('.tmp'))) {
       await folder.delete(BackupLayout.snapshotPath(name));
     }
   }

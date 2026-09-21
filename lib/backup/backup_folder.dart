@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
+
 import 'atomic_file.dart';
 
 /// Somewhere backups are kept.
@@ -10,9 +12,16 @@ import 'atomic_file.dart';
 /// plain directory have in common (`docs/sync-design.md` §3.3). A provider's
 /// own REST API can implement the same four methods later.
 abstract class BackupFolder {
-  /// Names of the files directly inside [directory], relative to the root of
-  /// the backup folder, e.g. `backups/vault-....bin`.
+  /// The file names directly inside [directory] — bare names, without the
+  /// directory in front of them, e.g. `vault-....bin`.
   Future<List<String>> list(String directory);
+
+  /// Whether the folder can be reached at all right now.
+  ///
+  /// Separate from "is empty": an unplugged drive, a folder that has moved
+  /// or a permission that has lapsed must never be reported to the user as
+  /// "no backups".
+  Future<bool> isAvailable();
 
   Future<Uint8List> read(String name);
 
@@ -40,11 +49,16 @@ class LocalBackupFolder implements BackupFolder {
   File _file(String name) => File('$path/$name');
 
   @override
+  Future<bool> isAvailable() => Directory(path).exists();
+
+  @override
   Future<List<String>> list(String directory) async {
     final dir = Directory(directory.isEmpty ? path : '$path/$directory');
     if (!await dir.exists()) return const [];
     final entries = await dir.list().toList();
-    return entries.whereType<File>().map((f) => f.path.split('/').last).toList()..sort();
+    // basename, not split('/'): Windows separates with a backslash, and the
+    // whole absolute path would then be treated as a file name.
+    return entries.whereType<File>().map((f) => p.basename(f.path)).toList()..sort();
   }
 
   @override

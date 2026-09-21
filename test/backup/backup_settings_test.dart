@@ -54,6 +54,26 @@ void main() {
       expect(await settings.lastBackupAt(), at);
     });
 
+    test('choosing a different folder forgets the old timestamp', () async {
+      await settings.setFolder('/old');
+      await settings.setLastBackupAt(DateTime.utc(2026, 10, 3));
+
+      await settings.setFolder('/new');
+
+      // The new folder holds no backups, so "last backed up" would be a lie
+      // and the daily backup would wait a day before writing there.
+      expect(await settings.lastBackupAt(), isNull);
+    });
+
+    test('choosing the same folder again keeps the timestamp', () async {
+      await settings.setFolder('/same');
+      await settings.setLastBackupAt(DateTime.utc(2026, 10, 3));
+
+      await settings.setFolder('/same');
+
+      expect(await settings.lastBackupAt(), DateTime.utc(2026, 10, 3));
+    });
+
     test('forgetting the folder also forgets when it was last backed up', () async {
       await settings.setFolder('/somewhere');
       await settings.setLastBackupAt(DateTime.utc(2026, 10, 3));

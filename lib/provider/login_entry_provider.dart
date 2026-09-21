@@ -151,12 +151,24 @@ class LoginEntryProvider with ChangeNotifier {
     return await unlockWithPasscode(meta, passcode) != null;
   }
 
+  /// Adopts the keys that came with a restored backup.
+  ///
+  /// A restored vault is encrypted with the key of the device that made the
+  /// backup, so the local `vault_meta.json` has to be replaced or the
+  /// passcode would no longer open it.
+  Future<void> adoptMeta(VaultMeta restored) async {
+    await (await _metaStore()).write(restored);
+    _meta = restored;
+  }
+
   /// Closes the vault and forgets the key.
   Future<void> lock() async {
     _databaseKey = null;
     _meta = null;
     _entries = [];
     await DbHelper.instance.close();
+    // Anything still showing a list of entries must stop.
+    notifyListeners();
   }
 
   List<LoginEntry> get entries => List.unmodifiable(_entries);

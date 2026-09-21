@@ -29,12 +29,19 @@ class BackupSettings {
 
   Future<void> setFolder(String? path) async {
     final prefs = await SharedPreferences.getInstance();
+    final previous = prefs.getString(_folderKey);
+
     if (path == null) {
       await prefs.remove(_folderKey);
       await prefs.remove(_lastBackupKey);
-    } else {
-      await prefs.setString(_folderKey, path);
+      return;
     }
+
+    await prefs.setString(_folderKey, path);
+    // A new folder has no backups in it, whatever the old one had. Keeping
+    // the old timestamp would show "last backed up" for a folder that holds
+    // nothing, and the daily backup would wait a day before writing there.
+    if (previous != path) await prefs.remove(_lastBackupKey);
   }
 
   Future<DateTime?> lastBackupAt() async {
