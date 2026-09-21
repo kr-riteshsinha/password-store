@@ -34,7 +34,18 @@ void main() {
 
       final rows = await db.fetchEntries();
       expect(rows, hasLength(1));
-      expect(rows.single.toMap(), entry.toMap());
+      // The tracking columns are stamped on write, so compare what the user
+      // typed; change_tracking_test.dart covers the stamping itself.
+      expect(
+        rows.single.toMap()
+          ..remove('updatedAt')
+          ..remove('revision')
+          ..remove('deviceId'),
+        entry.toMap()
+          ..remove('updatedAt')
+          ..remove('revision')
+          ..remove('deviceId'),
+      );
     });
 
     test('insertEntry with an existing id replaces the row', () async {

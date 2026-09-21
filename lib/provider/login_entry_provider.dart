@@ -69,6 +69,7 @@ class LoginEntryProvider with ChangeNotifier {
     _meta = meta;
     _databaseKey = key;
     await DbHelper.instance.openEncrypted(key);
+    await _ensureIdentity();
     return true;
   }
 
@@ -81,8 +82,42 @@ class LoginEntryProvider with ChangeNotifier {
     _meta = meta;
     _databaseKey = key;
     await DbHelper.instance.openEncrypted(key);
+    await _ensureIdentity();
     return true;
   }
+
+  /// Key under which this install's device id is stored.
+  static const _deviceIdPref = 'deviceId';
+
+  /// Makes sure the vault has an id and this install has a device id, then
+  /// tells [DbHelper] which device is writing.
+  ///
+  /// The device id lives in preferences rather than `vault_meta.json`: that
+  /// file travels with a backup, so a restored vault would otherwise claim to
+  /// be the device that wrote it.
+  Future<void> _ensureIdentity() async {
+    final prefs = await SharedPreferences.getInstance();
+    var deviceId = prefs.getString(_deviceIdPref);
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = UUIDv4().toString();
+      await prefs.setString(_deviceIdPref, deviceId);
+    }
+    DbHelper.deviceId = deviceId;
+
+    final meta = _meta;
+    if (meta != null && meta.vaultId == null) {
+      // A vault created before backup existed: give it an id now, once.
+      final updated = meta.copyWith(vaultId: newVaultId());
+      await (await _metaStore()).write(updated);
+      _meta = updated;
+    }
+  }
+
+  /// This install's device id, or null before a vault has been opened.
+  String? get deviceId => DbHelper.deviceId.isEmpty ? null : DbHelper.deviceId;
+
+  /// This vault's id, or null before a vault has been opened.
+  String? get vaultId => _meta?.vaultId;
 
   /// Closes the vault and forgets the key.
   Future<void> lock() async {
@@ -177,6 +212,7 @@ class LoginEntryProvider with ChangeNotifier {
     await store.write(created.meta);
     _meta = created.meta;
     _databaseKey = created.databaseKey;
+    await _ensureIdentity();
 
     final profile = ProfileEntry(id: UUIDv4().toString(), name: name.trim());
     await DbHelper.instance.AddProfile(profile);

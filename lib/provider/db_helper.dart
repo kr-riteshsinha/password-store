@@ -19,7 +19,7 @@ typedef EncryptedDatabaseOpener = Future<Database> Function(
 
 class DbHelper {
   static const _dbName = 'logins.db';
-  static const _dbVersion = 3;
+  static const _dbVersion = 4;
   static const _tableName = 'login_entries';
   static const _profileTable = "profile";
 
@@ -101,7 +101,8 @@ class DbHelper {
     if (oldVersion < 2) {
       // v1 had no profile table at all.
       await db.execute(_createProfileTable);
-    } else if (oldVersion < 3) {
+    }
+    if (oldVersion >= 2 && oldVersion < 3) {
       // v2 kept the passcode, recovery question and answer in the profile
       // row. None of them are stored any more, so the columns go. SQLite
       // cannot drop columns portably, hence the rebuild.
@@ -109,6 +110,17 @@ class DbHelper {
       await db.execute('INSERT INTO ${_profileTable}_new (id, name) SELECT id, name FROM $_profileTable');
       await db.execute('DROP TABLE $_profileTable');
       await db.execute('ALTER TABLE ${_profileTable}_new RENAME TO $_profileTable');
+    }
+    if (oldVersion < 4) {
+      // Change tracking for backup and merging (docs/sync-design.md §3.2).
+      // Existing entries are backfilled as "changed once, just now, by no
+      // known device", which is the truthful starting point: nothing is known
+      // about their history.
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN deletedAt INTEGER');
+      await db.execute('ALTER TABLE $_tableName ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
+      await db.execute("ALTER TABLE $_tableName ADD COLUMN deviceId TEXT NOT NULL DEFAULT ''");
+      await db.update(_tableName, {'updatedAt': DateTime.now().toUtc().millisecondsSinceEpoch});
     }
   }
 
@@ -127,34 +139,112 @@ class DbHelper {
         username TEXT NOT NULL,
         password TEXT NOT NULL,
         website TEXT NOT NULL,
-        totpSecret TEXT
+        totpSecret TEXT,
+        updatedAt INTEGER NOT NULL DEFAULT 0,
+        deletedAt INTEGER,
+        revision INTEGER NOT NULL DEFAULT 1,
+        deviceId TEXT NOT NULL DEFAULT ''
       )
-      
     ''');
     await db.execute(_createProfileTable);
   }
 
+  /// The device writing to this vault, stamped onto every change.
+  /// Set once per install by [LoginEntryProvider].
+  static String deviceId = '';
+
+  /// Overridable for tests, so a change's timestamp can be pinned.
+  static int Function() now =
+      () => DateTime.now().toUtc().millisecondsSinceEpoch;
+
+  /// Saves a new entry, or replaces one wholesale, stamping it as a change.
   Future<void> insertEntry(LoginEntry entry) async {
     final db = await database;
-    await db.insert(_tableName, entry.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    final entries = await fetchEntries();
-
+    final existing = await _rawEntry(entry.id);
+    await db.insert(
+      _tableName,
+      entry
+          .copyWith(
+            updatedAt: now(),
+            revision: (existing?.revision ?? 0) + 1,
+            deviceId: deviceId,
+          )
+          .toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
+  /// The live entries: tombstones are rows, but they are not entries any more.
   Future<List<LoginEntry>> fetchEntries() async {
     final db = await database;
-    final maps = await db.query(_tableName);
+    final maps = await db.query(_tableName, where: 'deletedAt IS NULL');
     return maps.map((e) => LoginEntry.fromMap(e)).toList();
+  }
+
+  /// Deleted entries, kept so another device cannot resurrect them
+  /// (docs/sync-design.md §3.2).
+  Future<List<LoginEntry>> fetchTombstones() async {
+    final db = await database;
+    final maps = await db.query(_tableName, where: 'deletedAt IS NOT NULL');
+    return maps.map((e) => LoginEntry.fromMap(e)).toList();
+  }
+
+  /// Every row, tombstones included. For backup and merging, not for the UI.
+  Future<List<LoginEntry>> fetchEntriesForSync() async {
+    final db = await database;
+    return (await db.query(_tableName)).map((e) => LoginEntry.fromMap(e)).toList();
+  }
+
+  Future<LoginEntry?> _rawEntry(String id) async {
+    final db = await database;
+    final maps = await db.query(_tableName, where: 'id = ?', whereArgs: [id], limit: 1);
+    return maps.isEmpty ? null : LoginEntry.fromMap(maps.first);
   }
 
   Future<void> updateEntry(LoginEntry entry) async {
     final db = await database;
-    await db.update(_tableName, entry.toMap(), where: 'id = ?', whereArgs: [entry.id]);
+    final existing = await _rawEntry(entry.id);
+    await db.update(
+      _tableName,
+      entry
+          .copyWith(
+            updatedAt: now(),
+            revision: (existing?.revision ?? 0) + 1,
+            deviceId: deviceId,
+          )
+          .toMap(),
+      where: 'id = ?',
+      whereArgs: [entry.id],
+    );
   }
 
+  /// Soft delete: the row stays as a tombstone so the entry cannot come back
+  /// from a device that has not synced yet.
   Future<void> deleteEntry(String id) async {
     final db = await database;
-    await db.delete(_tableName, where: 'id = ?', whereArgs: [id]);
+    final existing = await _rawEntry(id);
+    if (existing == null) return;
+    final at = now();
+    await db.update(
+      _tableName,
+      {
+        // The secret goes now; only the tombstone needs to survive.
+        'password': '',
+        'totpSecret': null,
+        'deletedAt': at,
+        'updatedAt': at,
+        'revision': existing.revision + 1,
+        'deviceId': deviceId,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Removes a tombstone for good. Used by retention, not by the UI.
+  Future<void> purgeTombstone(String id) async {
+    final db = await database;
+    await db.delete(_tableName, where: 'id = ? AND deletedAt IS NOT NULL', whereArgs: [id]);
   }
 
   /// Saves the vault's profile. The app is single-profile, so this throws a
