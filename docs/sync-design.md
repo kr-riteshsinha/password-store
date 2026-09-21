@@ -190,7 +190,7 @@ one-directional upload from a single writer has no merge to get wrong.
   backups/
     vault-<timestamp>.bin    whole-vault snapshot, sealed
     vault-<timestamp>.bin    the last N kept, oldest pruned
-  writer.json                which device currently uploads
+  last-backup.json           timestamp and deviceId of the most recent upload
 ```
 
 **Producing a snapshot.** Never upload `logins.db` itself (§3.1). The writer runs
@@ -210,9 +210,9 @@ backup.
 **Daily upload (writer only)**
 
 1. Check `meta.json`: if `vaultId` differs, stop — this folder holds a different vault.
-2. Check `writer.json`: if another device claims the role, stop and say so.
+2. Check `last-backup.json`: if the last upload came from another device, warn that two devices are backing up the same vault and that the older copy's edits will be lost. Upload anyway if the user confirms.
 3. Export, seal, upload, prune to the last N snapshots.
-4. Record `lastBackupAt` locally and show it in the drawer.
+4. Write `last-backup.json`, record the time locally, and show it in the drawer.
 
 **Restore (any device, always manual)**
 
@@ -221,10 +221,13 @@ backup.
 3. Download, verify the authentication tag, unwrap with the passcode, write to a temporary database, then swap it in atomically.
 4. A failed tag or a wrong passcode aborts before anything local is touched.
 
-**Taking over as writer** is explicit: the device says so, `writer.json` is rewritten,
-and the previous writer stops uploading when it next notices. Two devices uploading is
-the one situation this design cannot survive, so the role is visible in the UI at all
-times.
+**On two devices backing up the same vault:** this is the one situation a
+snapshot-shaped backup cannot survive, and v1 handles it with a warning rather than
+machinery. `last-backup.json` names the device that uploaded last, so a second device
+can say plainly what is about to happen. There is deliberately **no writer-role handover
+flow**: it would be several screens of state that merging (§5.2) deletes outright. The
+caveat lives in the UI text until merging lands, and merging is the next phase after
+backup, not the last.
 
 ### 5.2 Version 2 — merging
 
@@ -270,7 +273,7 @@ Consequences worth being explicit about, in the README as well as here:
 - **Two devices, same second, same entry.** Handled by `(revision, updatedAt, deviceId)` and, failing that, a conflicted copy.
 - **The user changes the passcode on device A.** `meta.json` is rewrapped; device B still has the old wrapping and keeps working locally, but must re-read `meta.json` before it can sync again. The database key itself never changes, so the entries stay readable — a direct benefit of not deriving the key from the passcode.
 - **The user restores an old folder from backup.** Old revisions lose to newer local ones, so the vault heals; tombstones stop deleted entries returning, until they are purged.
-- **Two devices both upload.** The one case v1 cannot survive, which is why the writer role is explicit and visible. A device that finds another writer in `writer.json` refuses to upload rather than racing.
+- **Two devices both upload.** The one case backup cannot survive. `last-backup.json` names the device that uploaded last, so the second device warns before replacing the first one's snapshot. Merging (phase 4) removes the problem rather than managing it.
 - **A stale device restores over newer work.** Restore is manual, warns plainly and names the snapshot's timestamp, so this is a choice rather than an accident.
 - **The folder is gone or unreadable** (unmounted, permission revoked, provider signed out). Sync must fail visibly and never treat "no remote items" as "everything was deleted" — that mistake would wipe the vault.
 - **Storage is full or the file is locked** mid-write. The temp-file-and-rename protocol leaves the old state intact.
@@ -279,20 +282,23 @@ Consequences worth being explicit about, in the README as well as here:
 
 Each becomes its own work item. Nothing touches the user's data until phase 3.
 
-**Version 1 — backup and restore**
+**Backup — the safety net, shipped first**
 
-1. **Change tracking.** Schema v4: `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` and `deviceId` in `vault_meta.json`. No sync, no UI. Lands first precisely so that v1 snapshots already carry what merging will need.
+1. **Change tracking.** Schema v4: `updatedAt`, `deletedAt`, `revision`, `deviceId`; soft delete; `vaultId` and `deviceId` in `vault_meta.json`. No sync, no UI. Lands first precisely so that backups already carry what merging will need.
 2. **Snapshot bundle format.** `VACUUM INTO` export, AES-GCM sealing, format versioning, the temp-and-rename protocol, integrity failures surfaced as errors.
-3. **Folder backend, backup and restore.** The OS pickers; the settings drawer item that replaces the `ICloud` placeholder; **Back up now**, the daily upload, restore-with-warning, last-backup time and error state.
-4. **The writer role.** `writer.json`, taking over explicitly, refusing to upload when another device holds it, and snapshot retention.
+3. **Folder backend, backup and restore.** The OS pickers; the settings drawer item that replaces the `ICloud` placeholder; **Back up now**, the daily upload, restore-with-warning, last-backup time and error state. From here a lost device no longer means a lost vault.
 
-**Version 2 — merging**
+**Merging — next, not last**
 
-5. **Merge engine.** Pure Dart, no I/O, heaviest tests in the project.
-6. **Per-entry files** alongside snapshots, and the switch from restore to merge.
-7. **Conflicted copies and tombstone purging.**
-8. **Automatic sync**, once merging has proven itself.
-9. *(Optional)* **Provider APIs** behind the same interface — Drive, S3, WebDAV — which is where the credential screen of §3.4 belongs.
+4. **Merge engine.** Pure Dart, no I/O, the heaviest tests in the project.
+5. **Per-entry files** alongside snapshots, and the switch from restore to merge. The two-device warning from phase 3 goes away here.
+6. **Conflicted copies and tombstone purging.**
+7. **Automatic sync**, once merging has proven itself.
+8. *(Optional)* **Provider APIs** behind the same interface — Drive, S3, WebDAV — which is where the credential screen of §3.4 belongs.
+
+**Deliberately not a phase:** a writer-role handover flow. It would exist only while
+merging is missing, and merging deletes it. A warning in phase 3 covers the same ground
+for the one or two releases it matters.
 
 ## 9. Questions still open
 
