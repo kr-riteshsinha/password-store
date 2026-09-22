@@ -111,6 +111,28 @@ These features are **planned, not yet built**. Contributions are welcome.
 
 ## Getting started
 
+### Download a build
+
+Ready-made builds for macOS, Windows, Linux and Android are attached to each
+[release](https://github.com/kr-riteshsinha/password-store/releases).
+
+They are **not signed**, so macOS will say the developer cannot be verified and
+Windows SmartScreen will warn. After unzipping on macOS:
+
+```bash
+xattr -dr com.apple.quarantine "Password Store.app"
+```
+
+Each release includes `SHA256SUMS`, so a download can be checked:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Being unsigned also means the checksums are the only thing tying a download to this
+project. If that is not enough for you — reasonable, for a password manager — build from
+source instead.
+
 ### Quick start
 
 ```bash
