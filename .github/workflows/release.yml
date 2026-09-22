@@ -1,0 +1,184 @@
+name: Release
+
+# Releases are deliberate: push a tag like v0.1.0, or run this by hand.
+# Nothing is published on an ordinary merge.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v0.1.0. It must already exist.'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.32.6'
+
+jobs:
+  # A tag that disagrees with pubspec.yaml would publish builds whose
+  # in-app version is not the one on the release page. Stop before building.
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - id: check
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          tag_version="${tag#v}"
+          pubspec_version="$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)"
+          echo "tag=$tag_version pubspec=$pubspec_version"
+          if [ "$tag_version" != "$pubspec_version" ]; then
+            echo "::error::Tag $tag says $tag_version but pubspec.yaml says $pubspec_version. Update one of them."
+            exit 1
+          fi
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check-version
+    strategy:
+      # One platform failing should not hide whether the others build.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-2022
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+          - os: ubuntu-latest
+            platform: android
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - if: matrix.platform == 'linux'
+        # libssl-dev: sqlcipher_flutter_libs builds SQLCipher against OpenSSL.
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libssl-dev
+
+      - run: flutter pub get
+
+      - name: Build
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            macos)   flutter build macos --release ;;
+            windows) flutter build windows --release ;;
+            linux)   flutter build linux --release ;;
+            android) flutter build apk --release ;;
+          esac
+
+      # Zipped per platform, named for the version, so a download says what
+      # it is once it leaves the browser.
+      - name: Package
+        shell: bash
+        run: |
+          version="${{ needs.check-version.outputs.version }}"
+          mkdir -p dist
+          case "${{ matrix.platform }}" in
+            macos)
+              cd build/macos/Build/Products/Release
+              zip -qry "$GITHUB_WORKSPACE/dist/password-vault-$version-macos.zip" ./*.app
+              ;;
+            windows)
+              cd build/windows/x64/runner/Release
+              7z a -tzip "$GITHUB_WORKSPACE/dist/password-vault-$version-windows.zip" ./* > /dev/null
+              ;;
+            linux)
+              cd build/linux/x64/release/bundle
+              tar czf "$GITHUB_WORKSPACE/dist/password-vault-$version-linux.tar.gz" ./*
+              ;;
+            android)
+              cp build/app/outputs/flutter-apk/app-release.apk "dist/password-vault-$version.apk"
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect and checksum
+        run: |
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          cd dist
+          # So a download can be checked against the release page. It proves
+          # the file is the one this workflow built; it is not a signature.
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Write the release notes
+        run: |
+          version="${{ needs.check-version.outputs.version }}"
+          cat > notes.md <<EOF
+          ## Password Vault $version
+
+          Encrypted, offline password vault. Your data stays on your device unless you set up a backup folder yourself.
+
+          ### Read this before installing
+
+          - **Early software.** It has **not had an independent security review**. Keep another copy of anything you cannot afford to lose.
+          - **These builds are not signed.** macOS will say the app "cannot be opened because the developer cannot be verified", and Windows SmartScreen will warn. That is expected, and it also means you have no way to prove these binaries came from this project beyond the checksums below — judge accordingly, and build from source if you would rather not.
+          - **The Android build is signed with debug keys.** It installs for testing, but it cannot be upgraded over a build signed differently, and it is not suitable for Play.
+
+          ### Downloads
+
+          | Platform | File |
+          |---|---|
+          | macOS | \`password-vault-$version-macos.zip\` |
+          | Windows | \`password-vault-$version-windows.zip\` |
+          | Linux | \`password-vault-$version-linux.tar.gz\` |
+          | Android | \`password-vault-$version.apk\` |
+
+          Check a download against \`SHA256SUMS\`:
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS --ignore-missing
+          \`\`\`
+
+          **macOS**, after unzipping, to get past Gatekeeper:
+
+          \`\`\`bash
+          xattr -dr com.apple.quarantine "Password Store.app"
+          \`\`\`
+
+          ### What works
+
+          A single vault, encrypted with SQLCipher and opened with your passcode. Backups to a folder you choose — iCloud Drive, Dropbox, Google Drive or anywhere else — with restore. Multi-device merging is not built yet: one device writes, the others restore.
+          EOF
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release create "$tag" dist/* \
+            --title "Password Vault ${{ needs.check-version.outputs.version }}" \
+            --notes-file notes.md \
+            --verify-tag
