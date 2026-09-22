@@ -1,6 +1,6 @@
 # Known Issues
 
-This is the full list of known issues in Password Store. Fixes are being made on the `issue-fix` branch.
+This is the full list of known issues in Password Store. Each fix gets its own branch off `main` (see CONTRIBUTING.md); there is no shared fix branch.
 
 Issue numbers are stable. A unit test that covers a bug is marked `skip: 'ISSUES.md #N ...'`. When you fix issue #N, remove that `skip` so the test guards the fix.
 

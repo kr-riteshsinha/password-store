@@ -6,7 +6,7 @@ Please read this guide before you open an issue or pull request. Everyone taking
 
 ## Before you start
 
-- **Read the warning in the [README](README.md).** The app is in early development and doesn't encrypt data yet.
+- **Read the warning in the [README](README.md).** The app is in early development and has not had an independent security review.
 - **Look for something to work on.** [ISSUES.md](ISSUES.md) lists every known bug with its severity and file location, and the [issue tracker](https://github.com/kr-riteshsinha/password-store/issues) has issues labelled `good first issue`.
 - **Say what you're taking on.** Comment on the issue before you start, so two people don't fix the same thing. For a larger feature, open an issue to discuss the approach first.
 - **Keep to the design:** Password Store is a **single-user vault**, like the Passwords app on macOS: one profile, unlocked with one passcode. Please don't add multi-profile or multi-user features.
