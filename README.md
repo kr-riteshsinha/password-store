@@ -56,7 +56,7 @@ Because the destination is yours, your credentials stay under your control and a
 Two rules make that safe, and both are prerequisites for the feature:
 
 1. **The vault is encrypted on the device, before it ever leaves it.** The storage provider only ever receives ciphertext, so an iCloud, Google or bucket account compromise does not expose your logins.
-2. **The key never goes to the provider.** It is derived from your passcode and stays on your devices, which means the provider cannot decrypt the file and neither can we.
+2. **The key never goes to the provider.** The database key is random and wrapped, not derived from your passcode; the wrapping is unwrapped locally and the key itself stays on your devices, which means the provider cannot decrypt the file and neither can we.
 
 The trade-off is that recovery is yours too: if you lose the passcode and your recovery key, no one can restore the vault for you.
 
