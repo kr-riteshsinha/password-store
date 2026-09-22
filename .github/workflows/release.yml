@@ -12,8 +12,11 @@ on:
         description: 'Tag to build, e.g. v0.1.0. It must already exist.'
         required: true
 
+# Read by default. Only the job that publishes may write: the build jobs run
+# pub, Gradle, CocoaPods and CMake, each of which executes third-party build
+# hooks, and checkout leaves a token in .git/config that they could reach.
 permissions:
-  contents: write
+  contents: read
 
 env:
   FLUTTER_VERSION: '3.32.6'
@@ -52,7 +55,10 @@ jobs:
             platform: macos
           - os: windows-2022
             platform: windows
-          - os: ubuntu-latest
+          # Not ubuntu-latest: a binary built against glibc 2.39 will not
+          # start on 22.04 or Debian 12, and glibc has no forward
+          # compatibility. Build on the oldest release we support.
+          - os: ubuntu-22.04
             platform: linux
           - os: ubuntu-latest
             platform: android
@@ -94,12 +100,16 @@ jobs:
               zip -qry "$GITHUB_WORKSPACE/dist/password-vault-$version-macos.zip" ./*.app
               ;;
             windows)
-              cd build/windows/x64/runner/Release
-              7z a -tzip "$GITHUB_WORKSPACE/dist/password-vault-$version-windows.zip" ./* > /dev/null
+              # Packaged with a folder inside, so unzipping does not scatter
+              # the executable and its data across the download directory.
+              mv build/windows/x64/runner/Release "build/windows/x64/runner/password-vault-$version"
+              cd build/windows/x64/runner
+              7z a -tzip "$GITHUB_WORKSPACE/dist/password-vault-$version-windows.zip" "password-vault-$version" > /dev/null
               ;;
             linux)
-              cd build/linux/x64/release/bundle
-              tar czf "$GITHUB_WORKSPACE/dist/password-vault-$version-linux.tar.gz" ./*
+              mv build/linux/x64/release/bundle "build/linux/x64/release/password-vault-$version"
+              cd build/linux/x64/release
+              tar czf "$GITHUB_WORKSPACE/dist/password-vault-$version-linux.tar.gz" "password-vault-$version"
               ;;
             android)
               cp build/app/outputs/flutter-apk/app-release.apk "dist/password-vault-$version.apk"
@@ -115,6 +125,8 @@ jobs:
   publish:
     needs: [check-version, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,8 +139,10 @@ jobs:
           mkdir -p dist
           find artifacts -type f -exec cp {} dist/ \;
           cd dist
-          # So a download can be checked against the release page. It proves
-          # the file is the one this workflow built; it is not a signature.
+          # Catches a corrupted or truncated download. It is not a
+          # signature and proves nothing against tampering: SHA256SUMS is an
+          # ordinary unsigned asset on the same page, so anyone who can
+          # replace a build can replace this too.
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
@@ -145,14 +159,15 @@ jobs:
           - **Early software.** It has **not had an independent security review**. Keep another copy of anything you cannot afford to lose.
           - **These builds are not signed.** macOS will say the app "cannot be opened because the developer cannot be verified", and Windows SmartScreen will warn. That is expected, and it also means you have no way to prove these binaries came from this project beyond the checksums below — judge accordingly, and build from source if you would rather not.
           - **The Android build is signed with debug keys.** It installs for testing, but it cannot be upgraded over a build signed differently, and it is not suitable for Play.
+          - **⚠️ The Windows and Linux builds have never been run on real hardware.** They compile, and their tests pass on Linux CI, but nobody has yet stored a password with them on a real machine. macOS and Android are the tried ones. Do not trust the desktop builds with passwords you cannot afford to lose.
 
           ### Downloads
 
           | Platform | File |
           |---|---|
           | macOS | \`password-vault-$version-macos.zip\` |
-          | Windows | \`password-vault-$version-windows.zip\` |
-          | Linux | \`password-vault-$version-linux.tar.gz\` |
+          | Windows ⚠️ | \`password-vault-$version-windows.zip\` |
+          | Linux ⚠️ | \`password-vault-$version-linux.tar.gz\` |
           | Android | \`password-vault-$version.apk\` |
 
           Check a download against \`SHA256SUMS\`:
@@ -178,7 +193,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release create "$tag" dist/* \
-            --title "Password Vault ${{ needs.check-version.outputs.version }}" \
-            --notes-file notes.md \
-            --verify-tag
+          # A manual re-run of an existing tag replaces its files rather than
+          # failing after twenty minutes of building.
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Release $tag exists; replacing its files."
+            gh release upload "$tag" dist/* --clobber
+            gh release edit "$tag" \
+              --title "Password Vault ${{ needs.check-version.outputs.version }}" \
+              --notes-file notes.md
+          else
+            gh release create "$tag" dist/* \
+              --title "Password Vault ${{ needs.check-version.outputs.version }}" \
+              --notes-file notes.md \
+              --verify-tag
+          fi
